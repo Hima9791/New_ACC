@@ -567,20 +567,8 @@ def process_unit_token(token, base_units, multipliers_dict):
 def resolve_compound_unit(normalized_unit_string, base_units, multipliers_dict):
     """
     Takes a raw value string and resolves the base units within its structure.
-    Example: "10V @ 5mA to 10mA" -> "V@A" (assuming consistent units)
-             "10V @ 5mA, 6mA" -> "V@A"
-             "10V to 12V @ 5A" -> "V@A"
-             "10V, 1A @ 5W" -> "V, A@W" (representing distinct units found)
-
-    Args:
-        normalized_unit_string (str): The *raw* value string to analyze.
-        base_units (set): Known base units.
-        multipliers_dict (dict): Multiplier map.
-
-    Returns:
-        str: A string representing the resolved base units in the structure.
     """
-    raw_value = str(normalized_unit_string).strip()  # Input is the raw value string
+    raw_value = str(normalized_unit_string).strip()
     tokens = split_outside_parens(raw_value, delimiters=["to", ",", "@"])
     resolved_structure = []
 
@@ -591,7 +579,8 @@ def resolve_compound_unit(normalized_unit_string, base_units, multipliers_dict):
         elif part == "":
             continue
         else:
-            resolved_structure.append(process_unit_token(part, base_units, multipliers_dict))
+            unit = process_unit_token(part, base_units, multipliers_dict)
+            resolved_structure.append(unit if unit is not None else "")  # prevent None
 
     final_repr = "".join(resolved_structure)
     return final_repr
