@@ -564,8 +564,8 @@ def process_unit_token(token, base_units, multipliers_dict):
         return None # Indicate unresolved
 
 
-def resolve_compound_unit(normalized_unit, base_units, multipliers_dict):
-    tokens = split_outside_parens(normalized_unit, delimiters=["to", ",", "@"])
+def resolve_compound_unit(normalized_unit_string, base_units, multipliers_dict):
+    tokens = split_outside_parens(normalized_unit_string, delimiters=["to", ",", "@"])
     resolved_parts = []
     for part in tokens:
         if part in ["to", ",", "@"]:
@@ -575,6 +575,7 @@ def resolve_compound_unit(normalized_unit, base_units, multipliers_dict):
                 continue
             resolved_parts.append(process_unit_token(part, base_units, multipliers_dict))
     return "".join(resolved_parts)
+
 
 
 
