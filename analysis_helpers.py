@@ -372,32 +372,39 @@ def extract_numeric_info_for_value(raw_value, base_units, multipliers_dict):
 
 # --- change1 seems to have been incorporated into process_unit_token_no_paren ---
 def process_unit_token_no_paren(token, base_units, multipliers_dict):
-    token = token.strip()
-    if token.startswith('$'):
-        after_dollar = token[1:].strip()  # Remove '$' and strip spaces
-        if after_dollar == "":
-            return "$"
-        # If the entire token after '$' is a base unit, return it directly.
-        if after_dollar in base_units:
-            return "$" + after_dollar
-        sorted_prefixes = sorted(multipliers_dict.keys(), key=len, reverse=True)
-        for prefix in sorted_prefixes:
-            if after_dollar.startswith(prefix):
-                possible_base = after_dollar[len(prefix):]
-                if possible_base in base_units:
-                    return "$" + possible_base
-        return f"Error: Undefined unit '{after_dollar}' (no recognized prefix)"
+    # Preserve the original token, spacing, and structure
+    token = str(token)
+
+    # Check if token starts with '$'
+    has_dollar = token.lstrip().startswith('$')
+
+    # Extract the part after '$' to process, but DO NOT strip spaces
+    if has_dollar:
+        split_index = token.index('$')
+        before = token[:split_index + 1]  # keep '$' and any space before it
+        after = token[split_index + 1:]   # keep any space between $ and unit
     else:
-        stripped_token = token.strip()
-        if stripped_token in base_units:
-            return "$" + stripped_token
-        sorted_prefixes = sorted(multipliers_dict.keys(), key=len, reverse=True)
-        for prefix in sorted_prefixes:
-            if stripped_token.startswith(prefix):
-                possible_base = stripped_token[len(prefix):]
-                if possible_base in base_units:
-                    return "$" + possible_base
-        return f"Error: Undefined unit '{stripped_token}' (no recognized prefix)"
+        before = ""
+        after = token
+
+    # Extract unit portion without removing internal spacing
+    # Try to detect the unit (ignoring prefix) within `after`
+    unit_candidate = after.strip()
+    sorted_prefixes = sorted(multipliers_dict.keys(), key=len, reverse=True)
+
+    for prefix in sorted_prefixes:
+        if unit_candidate.startswith(prefix):
+            possible_base = unit_candidate[len(prefix):]
+            if possible_base in base_units:
+                return before + after.replace(unit_candidate, possible_base, 1)
+
+    # If no prefix match, but full unit is valid
+    if unit_candidate in base_units:
+        return before + after.replace(unit_candidate, unit_candidate, 1)
+
+    # Return untouched (fallback)
+    return token
+
 
 
 def analyze_unit_part(part_text, base_units, multipliers_dict):
