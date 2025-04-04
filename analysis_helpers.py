@@ -18,7 +18,59 @@ except ImportError:
     # This is less ideal but provides a default.
     st.error("Could not import MULTIPLIER_MAPPING from mapping_utils. Using default empty map.")
     MULTIPLIER_MAPPING = {}
+def split_outside_parens_preserve(text, delimiters):
+    """
+    Splits text by the given delimiters, ignoring delimiters inside parentheses,
+    and always preserving the delimiter tokens.
+    
+    Args:
+        text (str): Text to split.
+        delimiters (list[str]): List of delimiter strings.
+    
+    Returns:
+        list[str]: List of tokens with delimiters included.
+    """
+    text = str(text)
+    tokens = []
+    current = ""
+    i = 0
+    depth = 0
+    sorted_delims = sorted(delimiters, key=len, reverse=True)
 
+    while i < len(text):
+        char = text[i]
+        if char == '(':
+            depth += 1
+            current += char
+            i += 1
+        elif char == ')':
+            depth = max(0, depth - 1)
+            current += char
+            i += 1
+        elif depth == 0:
+            matched_delim = None
+            for delim in sorted_delims:
+                if i + len(delim) <= len(text) and text[i:i+len(delim)] == delim:
+                    matched_delim = delim
+                    break
+
+            if matched_delim:
+                if current.strip():
+                    tokens.append(current.strip())
+                tokens.append(matched_delim)  # Always add the delimiter token
+                current = ""
+                i += len(matched_delim)
+            else:
+                current += char
+                i += 1
+        else:
+            current += char
+            i += 1
+
+    if current.strip():
+        tokens.append(current.strip())
+
+    return tokens
 
 # --- Utility functions (Mostly from original Section 3 & 4 helpers) ---
 
@@ -563,14 +615,9 @@ def process_unit_token(token, base_units, multipliers_dict):
 
 
 def resolve_compound_unit(normalized_unit, base_units, multipliers_dict):
-    """
-    Processes a normalized unit string that may contain compound expressions
-    with "to", ",", or "@" while ignoring parentheses.
-    Returns a string with prefixes removed, preserving formatting.
-    """
-    tokens = split_outside_parens(normalized_unit, delimiters=["to", ",", "@"])
+    # Use the local helper that preserves delimiters.
+    tokens = split_outside_parens_preserve(normalized_unit, ["to", ",", "@"])
     resolved_parts = []
-
     for part in tokens:
         if part in ["to", ",", "@"]:
             resolved_parts.append(part)
@@ -578,8 +625,8 @@ def resolve_compound_unit(normalized_unit, base_units, multipliers_dict):
             continue
         else:
             resolved_parts.append(process_unit_token(part, base_units, multipliers_dict))
+    return " ".join(resolved_parts)
 
-    return " ".join(resolved_parts)  # 👈 PRESERVE SPACING
 
 
 
