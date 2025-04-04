@@ -1,5 +1,3 @@
-# analysis_helpers.py
-
 #############################################
 # MODULE: ANALYSIS HELPERS
 # Purpose: Contains core, reusable functions for parsing,
@@ -19,7 +17,7 @@ except ImportError:
     # Fallback if run in a context where mapping_utils isn't directly importable
     # This is less ideal but provides a default.
     st.error("Could not import MULTIPLIER_MAPPING from mapping_utils. Using default empty map.")
-    MULTIPLIER_MAPPING = {} # Ensure it's defined even on error
+    MULTIPLIER_MAPPING = {}
 
 
 # --- Utility functions (Mostly from original Section 3 & 4 helpers) ---
@@ -56,9 +54,6 @@ def extract_numeric_and_unit_analysis(token, base_units, multipliers_dict):
     if not m or not m.group("numeric"): # No numeric part found at the start
         # Check if it's just a known unit or starts with a known prefix followed by a known unit
         is_unit_only = False
-        token_lower_for_check = token.lower() # Case-insensitive check? Base units are case-sensitive usually.
-                                               # Let's keep case-sensitive check against base_units set for now.
-
         if token in base_units:
              is_unit_only = True
              # Return None for numeric parts, "1" for multiplier, token as base unit
@@ -93,7 +88,7 @@ def extract_numeric_and_unit_analysis(token, base_units, multipliers_dict):
     numeric_val = None
     numeric_str_clean = numeric_str_raw.replace('±','') # Remove ± for float conversion
     try:
-        if numeric_str_clean and numeric_str_clean not in ['+', '-']: # Ensure not just a sign
+        if numeric_str_clean: # Ensure not empty string after removing sign etc.
             numeric_val = float(numeric_str_clean)
     except ValueError:
         # This indicates an issue with the regex or input format if numeric_str exists but isn't float-able
@@ -154,9 +149,6 @@ def extract_numeric_and_unit_analysis(token, base_units, multipliers_dict):
 
 def remove_parentheses_detailed(text: str) -> str:
     """Removes content within the outermost parentheses."""
-    # Ensure handling of nested parentheses if necessary, current regex removes simplest case.
-    # Consider using a stack-based approach for true nesting removal if required.
-    # For now, keeping the simple regex assuming non-nested or outermost removal is sufficient.
     return re.sub(r'\([^()]*\)', '', str(text)) # Ensure input is string
 
 def extract_identifiers_detailed(text: str):
@@ -167,7 +159,13 @@ def extract_identifiers_detailed(text: str):
 def split_outside_parens(text, delimiters):
     """
     Splits text by delimiters, ignoring delimiters inside parentheses.
-    (Copied from existing analysis_helpers, seems robust enough)
+
+    Args:
+        text (str): The text to split.
+        delimiters (list[str]): A list of delimiter strings.
+
+    Returns:
+        list[str]: A list of tokens.
     """
     text = str(text) # Ensure string input
     tokens = []
@@ -204,10 +202,8 @@ def split_outside_parens(text, delimiters):
                 # Found a delimiter outside parentheses
                 if current.strip(): # Add the part before the delimiter if not empty
                     tokens.append(current.strip())
-                # --- Modified from sample code: Add the delimiter itself as a token ---
-                # The sample's resolve_compound_unit expects delimiters as tokens too.
-                tokens.append(matched_delim)
-                # --- End Modification ---
+                # Optionally add the delimiter itself as a token if needed:
+                # tokens.append(matched_delim)
                 current = "" # Reset current part
                 i += len(matched_delim) # Move index past the delimiter
             else:
@@ -224,15 +220,22 @@ def split_outside_parens(text, delimiters):
         tokens.append(current.strip())
 
     # Filter out empty strings that might result from splitting errors or consecutive delimiters
-    # Also strip whitespace from final tokens
-    return [token.strip() for token in tokens if token.strip()]
+    return [token for token in tokens if token]
 
 
 def extract_numeric_info(part_text, base_units, multipliers_dict):
     """
     Extracts numeric information (values, multipliers, units, normalized)
     from a string potentially containing single, range, or multiple values.
-    (Keep existing function)
+
+    Args:
+        part_text (str): The text segment to analyze (e.g., "10k to 20k Ohm", "5A", "1, 2, 3").
+        base_units (set): Set of known base units.
+        multipliers_dict (dict): Dictionary of multipliers.
+
+    Returns:
+        dict: Dictionary containing lists of extracted info and the detected type ('single', 'range', 'multiple', 'none').
+              Keys: "numeric_values", "multipliers", "base_units", "normalized_values", "error_flags", "type".
     """
     # First remove content within parentheses for analysis
     text = remove_parentheses_detailed(part_text).strip()
@@ -257,9 +260,8 @@ def extract_numeric_info(part_text, base_units, multipliers_dict):
         # Further split parts containing ' to ' if necessary? No, treat "A, B to C" as multiple.
     elif len(tokens) == 1:
          # Now check the single token for ' to ' range
-         range_parts = split_outside_parens(tokens[0], [' to ']) # Use robust split
+         range_parts = split_outside_parens(tokens[0], [' to ']) # Crude split for ' to '
          # Refine range check: needs values on both sides?
-         # Check if ' to ' (case-insensitive, surrounded by spaces) exists *within* the single token
          if len(range_parts) > 1 and re.search(r'\s+to\s+', tokens[0], re.IGNORECASE):
               info_type = "range"
               tokens = range_parts # Use the parts split by ' to '
@@ -313,7 +315,15 @@ def extract_numeric_info_for_value(raw_value, base_units, multipliers_dict):
     """
     Extracts numeric information for a potentially complex value string,
     splitting it into main and condition parts based on '@'.
-    (Keep existing function)
+
+    Args:
+        raw_value (str): The input value string (e.g., "10A @ 5V", "50 Ohm").
+        base_units (set): Set of known base units.
+        multipliers_dict (dict): Dictionary of multipliers.
+
+    Returns:
+        dict: Dictionary containing numeric info for main and condition parts.
+              Keys like "main_numeric", "condition_base_units", "normalized_main", etc.
     """
     # This function processes ONE logical value string which might contain '@' internally.
     # It assumes the input `raw_value` represents one entry (potentially complex).
@@ -324,19 +334,10 @@ def extract_numeric_info_for_value(raw_value, base_units, multipliers_dict):
     cond_part = ""
 
     # Split only on the first '@' found outside parentheses
-    at_split = split_outside_parens(raw_value, ['@']) # Use robust split
+    at_split = split_outside_parens(raw_value, ['@'])
     if len(at_split) > 1:
         main_part = at_split[0].strip()
-        # Rejoin subsequent parts with '@' if the delimiter itself wasn't captured correctly
-        # Our split_outside_parens captures delimiters, so find the first '@' token
-        try:
-             at_index = at_split.index('@')
-             cond_part = "".join(at_split[at_index + 1:]).strip() # Join parts after '@'
-        except ValueError:
-             # This shouldn't happen if len(at_split) > 1 included '@'
-             cond_part = "" # Fallback
-             st.warning(f"DEBUG: '@' delimiter expected but not found in split: {at_split}")
-
+        cond_part = "@".join(at_split[1:]).strip() # Rejoin if multiple '@' were present (unlikely?)
     elif len(at_split) == 1:
          main_part = at_split[0].strip() # No '@' found outside parens
          # Check if '@' exists inside parentheses (should be ignored by split_outside_parens)
@@ -369,23 +370,21 @@ def extract_numeric_info_for_value(raw_value, base_units, multipliers_dict):
         "condition_type": cond_info["type"], # Add type
     }
 
-# --- START: Logic adapted from sample script for Absolute Unit ---
-
+# --- change1 seems to have been incorporated into process_unit_token_no_paren ---
 def process_unit_token_no_paren(token, base_units, multipliers_dict):
     """
-    (Adapted from sample script)
-    Attempts to resolve a token (without parentheses) to its base unit,
-    prepending '$' and handling prefixes. Returns error string on failure.
+    DEPRECATED? analyze_unit_part and extract_numeric_and_unit_analysis are preferred.
+    Attempts to resolve a token (without parentheses) to its base unit.
     """
     token = token.strip()
+    st.warning("DEBUG: process_unit_token_no_paren may be deprecated.") # Add warning
 
-    # The sample code handles pre-existing '$', but we are generating it.
-    # Let's simplify and assume input `token` doesn't start with '$'.
-    # If it does, the logic might need adjustment, but typically the input
-    # here would be like 'V', 'kOhm', 'Temperature' etc.
+    # Handle currency symbol ($) explicitly if needed, otherwise treat like other units.
+    # Let's assume '$' is NOT a base unit unless added to mapping.xlsx.
 
+    # Direct match for base unit
     if token in base_units:
-        return "$" + token # Prepend $ to the base unit
+        return token # Return the base unit itself
 
     # Check for prefix + base unit
     sorted_prefixes = sorted(multipliers_dict.keys(), key=len, reverse=True)
@@ -393,124 +392,27 @@ def process_unit_token_no_paren(token, base_units, multipliers_dict):
         if token.startswith(prefix):
             possible_base = token[len(prefix):].strip()
             if possible_base in base_units:
-                # Found a valid prefix and base unit combination.
-                return "$" + possible_base # Return $ prepended to the BASE unit
+                # We found a valid prefix and base unit combination.
+                return possible_base # Return the identified base unit
 
     # If no match, it's an unknown unit or just text without a unit
-    # Return the error string format from the sample script
-    return f"Error: Undefined unit '{token}' (no recognized prefix)"
-
-def process_unit_token(token, base_units, multipliers_dict):
-    """
-    (Adapted from sample script)
-    Processes a token potentially containing numeric, unit, and parentheses,
-    aiming to replace the core unit part using process_unit_token_no_paren.
-    """
-    # Regex to carefully separate parts: leading space, numeric, space, unit, space, parenthetical, trailing space
-    pattern = re.compile(
-        r'^(?P<lead>\s*)'                  # Leading whitespace
-        # Optional numeric part (non-capturing group for structure)
-        # Allow sign, digits, optional decimal, optional exponent
-        # Less greedy match for numeric part might be needed if unit starts with e/E
-        r'(?:[+\-±]?\d*(?:\.\d+)?(?:[eE][+\-]?\d+)?)?'
-        r'(?P<space1>\s*)'                 # Space after potential numeric
-        r'(?P<unit_core>.*?)'              # The core unit part (non-greedy)
-        r'(?P<space2>\s*)'                 # Space before potential parentheses
-        r'(?P<paren>\([^()]*\))?'          # Optional non-nested parentheses
-        r'(?P<trail>\s*)$'                 # Trailing whitespace
-    )
-
-    # Simplified Regex: Just separate leading numeric/sign if present, from the rest
-    pattern_simple = re.compile(
-         r'^(?P<numeric_part>[+\-±]?\d*(?:\.\d+)?(?:[eE][+\-]?\d+)?)?' # Optional numeric
-         r'(?P<rest>.*)$' # Everything else
-    )
-
-    m = pattern_simple.match(token)
-    if not m:
-        # If the token doesn't match at all (e.g., empty), return as is.
-        return token
-
-    numeric_part = m.group('numeric_part') or ""
-    rest = m.group('rest') # This 'rest' contains spaces, unit, parens etc.
-
-    # Now, isolate the actual unit part within 'rest', excluding surrounding spaces and parens
-    # Extract parens first
-    paren_match = re.search(r'(\([^()]*\))$', rest) # Parens at the end
-    paren_str = ""
-    unit_part_for_processing = rest
-    if paren_match:
-        paren_str = paren_match.group(1)
-        # Remove the parens and trailing space from the part to be processed
-        unit_part_for_processing = rest[:-len(paren_str)].rstrip()
-
-    # The remaining part is the potential unit (with potential leading space)
-    unit_core = unit_part_for_processing.strip()
-
-    # Process the core unit part
-    if unit_core: # Only process if there is something left
-        processed_core = process_unit_token_no_paren(unit_core, base_units, multipliers_dict)
-    else:
-        processed_core = "" # No core unit part found
-
-    # Reconstruct the string: numeric + processed core + parenthesis
-    # Need to handle spacing carefully. Let's assume a single space if numeric and unit exist.
-    # This reconstruction is tricky and might not perfectly match original spacing.
-    # Let's try reconstructing based on sample's `resolve_compound_unit` expectation,
-    # which seems to operate on the *tokenized* parts (like '10V', '@', '5A').
-    # The sample `process_unit_token` might be simpler than the regex above suggests.
-
-    # Simpler approach based on sample's usage:
-    # It seems `resolve_compound_unit` calls `process_unit_token` on parts like "10V", "5mA".
-    # Let's assume `process_unit_token` should primarily call `process_unit_token_no_paren` on the non-numeric part.
-
-    # Try again: Extract numeric vs non-numeric+parens
-    numeric_extract_pattern = re.compile(r'^(?P<numeric>[+\-±]?\d*(?:\.\d+)?(?:[eE][+\-]?\d+)?)(?P<unit_etc>.*)$')
-    match_num = numeric_extract_pattern.match(token)
-
-    if match_num and match_num.group('numeric'):
-        numeric = match_num.group('numeric')
-        unit_etc = match_num.group('unit_etc').strip() # Part after number (e.g., "kOhm (typ)")
-
-        # Remove parens from unit_etc for processing
-        unit_core_no_paren = remove_parentheses_detailed(unit_etc).strip()
-        paren_content = extract_identifiers_detailed(unit_etc) # Get content inside parens
-
-        if unit_core_no_paren:
-            processed_unit = process_unit_token_no_paren(unit_core_no_paren, base_units, multipliers_dict)
-            # Reconstruct: numeric + space? + processed_unit + space? + parens?
-            # Sample output ($V@$A) suggests minimal spacing. Let's omit extra spaces.
-            reconstructed = numeric + processed_unit
-            if paren_content:
-                # Add parens back, maybe with a space? Sample doesn't show this case. Assume no space.
-                reconstructed += f"({', '.join(paren_content)})" # Reconstruct simply
-            return reconstructed
-        else:
-            # Only numeric + maybe parens, no unit part
-            return token # Return original
-    else:
-        # Token does not start with a clear number, treat whole token as unit part
-        token_no_paren = remove_parentheses_detailed(token).strip()
-        paren_content = extract_identifiers_detailed(token)
-        if token_no_paren:
-            processed_unit = process_unit_token_no_paren(token_no_paren, base_units, multipliers_dict)
-            if paren_content:
-                 return f"{processed_unit}({', '.join(paren_content)})"
-            else:
-                 return processed_unit
-        else:
-             # Only parens? Return original
-             return token
-
-
-# --- END: Logic adapted from sample script for Absolute Unit ---
+    # st.write(f"DEBUG: Unit part '{token}' not resolved to a base unit.")
+    return None # Indicate no base unit could be resolved
 
 
 def analyze_unit_part(part_text, base_units, multipliers_dict):
     """
     Analyzes the unit(s) present in a text segment (which might be single, range, or multiple).
     Identifies distinct base units and checks for consistency.
-    (Keep existing function)
+
+    Args:
+        part_text (str): The text segment (e.g., "10k to 20k Ohm", "5A", "1V, 2V").
+        base_units (set): Set of known base units.
+        multipliers_dict (dict): Dictionary of multipliers.
+
+    Returns:
+        dict: Contains lists/sets of units, consistency flag, count, and type.
+              Keys: "units", "distinct_units", "is_consistent", "count", "type".
     """
     # Remove parentheses content first
     text = remove_parentheses_detailed(part_text).strip()
@@ -528,7 +430,7 @@ def analyze_unit_part(part_text, base_units, multipliers_dict):
     if len(tokens) > 1:
         part_type = "multiple"
     elif len(tokens) == 1:
-         range_parts = split_outside_parens(tokens[0], [' to ']) # Use robust split
+         range_parts = split_outside_parens(tokens[0], [' to '])
          if len(range_parts) > 1 and re.search(r'\s+to\s+', tokens[0], re.IGNORECASE):
               part_type = "range"
               tokens = range_parts
@@ -551,13 +453,10 @@ def analyze_unit_part(part_text, base_units, multipliers_dict):
 
         if not err_flag and base_unit:
             units.append(base_unit)
-        # Handle cases like just "V" which extract_numeric fails on but is a base unit
-        elif token_strip in base_units:
+        elif token_strip in base_units: # Handle cases like just "V"
              units.append(token_strip)
         else:
-             # If no unit was resolved by extraction, check prefixes again?
-             # Or rely on the error flag? If error, unit is likely None.
-             # Append None if no valid unit was found.
+             # If no unit was resolved by extraction, add None or placeholder
              units.append(None) # Represent absence of recognized unit
 
     # Filter out None before creating distinct set and checking consistency
@@ -579,7 +478,14 @@ def analyze_unit_part(part_text, base_units, multipliers_dict):
 def analyze_value_units(raw_value, base_units, multipliers_dict):
     """
     Analyzes units in a potentially complex value string (main @ condition).
-    (Keep existing function)
+
+    Args:
+        raw_value (str): Input value string.
+        base_units (set): Known base units.
+        multipliers_dict (dict): Multiplier map.
+
+    Returns:
+        dict: Aggregated unit analysis results for main and condition parts.
     """
     # Similar structure to extract_numeric_info_for_value
     raw_value = str(raw_value).strip()
@@ -587,16 +493,10 @@ def analyze_value_units(raw_value, base_units, multipliers_dict):
     cond_part = ""
 
     # Split by '@' outside parentheses
-    at_split = split_outside_parens(raw_value, ['@']) # Use robust split
+    at_split = split_outside_parens(raw_value, ['@'])
     if len(at_split) > 1:
         main_part = at_split[0].strip()
-        try:
-             at_index = at_split.index('@')
-             cond_part = "".join(at_split[at_index + 1:]).strip()
-        except ValueError:
-             cond_part = ""
-             st.warning(f"DEBUG: '@' delimiter expected but not found in split: {at_split}")
-
+        cond_part = "@".join(at_split[1:]).strip()
     elif len(at_split) == 1:
         main_part = at_split[0].strip()
 
@@ -644,7 +544,93 @@ def analyze_value_units(raw_value, base_units, multipliers_dict):
     }
 
 
-# Removed the original resolve_compound_unit - it will be replaced in detailed_pipeline.py
+def process_unit_token(token, base_units, multipliers_dict):
+    """
+    DEPRECATED? Preferred: extract_numeric_and_unit_analysis or analyze_unit_part.
+    Processes a token, aiming to return the base unit.
+    """
+    st.warning("DEBUG: process_unit_token may be deprecated.") # Add warning
+    # Let's reuse the robust extraction logic:
+    _, _, base_unit, _, err_flag = extract_numeric_and_unit_analysis(token, base_units, multipliers_dict)
+
+    if not err_flag and base_unit:
+        # Add special formatting if needed (Example was: Ohm -> $ Ohm) - Removed for neutrality
+        return base_unit # Return the resolved base unit
+    elif str(token).strip() in base_units:
+         return str(token).strip() # It was just a base unit
+    else:
+        # Handle errors or unknowns
+        # Return None or error marker? Let's return None.
+        return None # Indicate unresolved
+
+
+def resolve_compound_unit(normalized_unit_string, base_units, multipliers_dict):
+    """
+    Takes a raw value string and resolves the base units within its structure.
+    Example: "10V @ 5mA to 10mA" -> "V @ A" (assuming consistent units)
+             "10V @ 5mA, 6mA" -> "V @ A"
+             "10V to 12V @ 5A" -> "V @ A"
+             "10V, 1A @ 5W" -> "V, A @ W" (representing distinct units found)
+
+    Args:
+        normalized_unit_string (str): The *raw* value string to analyze.
+        base_units (set): Known base units.
+        multipliers_dict (dict): Multiplier map.
+
+    Returns:
+        str: A string representing the resolved base units in the structure.
+    """
+    raw_value = str(normalized_unit_string).strip() # Input is the raw value string
+    resolved_structure = []
+
+    # Split by '@' first, keeping the delimiter conceptually
+    at_split = split_outside_parens(raw_value, ['@'])
+    main_part_str = raw_value
+    cond_part_str = ""
+    has_condition = False
+
+    if len(at_split) > 1:
+        main_part_str = at_split[0].strip()
+        cond_part_str = "@".join(at_split[1:]).strip()
+        has_condition = True
+    elif len(at_split) == 1:
+        main_part_str = at_split[0].strip()
+
+
+    # --- Resolve units in the main part ---
+    main_analysis = analyze_unit_part(main_part_str, base_units, multipliers_dict)
+    # Represent main part units. If multiple distinct units, join them.
+    if main_analysis["distinct_units"]:
+         # Sort for consistent output order
+         main_unit_repr = ", ".join(sorted(list(main_analysis["distinct_units"])))
+    else:
+         main_unit_repr = "None" # No valid units found in main part
+    resolved_structure.append(main_unit_repr)
+
+
+    # --- Resolve units in the condition part (if exists) ---
+    if has_condition:
+        resolved_structure.append("@") # Add the separator
+        cond_analysis = analyze_unit_part(cond_part_str, base_units, multipliers_dict)
+        # Represent condition part units
+        if cond_analysis["distinct_units"]:
+             cond_unit_repr = ", ".join(sorted(list(cond_analysis["distinct_units"])))
+        else:
+             cond_unit_repr = "None" # No valid units found in condition part
+        resolved_structure.append(cond_unit_repr)
+
+    # Join the parts with spaces, filtering out "None" unless it's the only part
+    final_repr_parts = [p for p in resolved_structure if p != "None"]
+
+    if not final_repr_parts:
+         # If both main and condition had no units, return "None" or ""? Let's use ""
+         return ""
+    else:
+         # Join remaining parts, ensure "@" is handled cleanly
+         final_repr = " ".join(final_repr_parts)
+         # Clean up spacing around "@" if needed (e.g., "V @ A")
+         final_repr = final_repr.replace(" @ ", "@")
+         return final_repr
 
 
 def count_main_items(main_str: str) -> int:
@@ -655,9 +641,6 @@ def count_main_items(main_str: str) -> int:
 
     # Split by comma first to identify distinct comma-separated items
     comma_parts = split_outside_parens(main_str, [','])
-    # Filter out the delimiter tokens themselves if captured
-    comma_parts = [p for p in comma_parts if p != ',']
-
     count = 0
     for part in comma_parts:
         part_strip = part.strip()
@@ -683,9 +666,6 @@ def count_conditions(cond_str: str) -> int:
     # Conditions are typically comma-separated clauses.
     # Each clause might be a single value or a range.
     comma_parts = split_outside_parens(cond_str, [','])
-    # Filter out delimiter tokens
-    comma_parts = [p for p in comma_parts if p != ',']
-
     count = 0
     for part in comma_parts:
         part_strip = part.strip()
@@ -707,8 +687,6 @@ def classify_condition(cond_str: str) -> str:
 
     # Split by comma first
     comma_parts = split_outside_parens(cond_str, [','])
-    # Filter delimiters
-    comma_parts = [p for p in comma_parts if p != ',']
     num_comma_parts = len([p for p in comma_parts if p.strip()]) # Count non-empty parts
 
     # Check if *any* non-empty part contains a range marker ' to '
@@ -735,8 +713,6 @@ def classify_main(main_str: str) -> str:
 
     # Split by comma first
     comma_parts = split_outside_parens(main_str, [','])
-    # Filter delimiters
-    comma_parts = [p for p in comma_parts if p != ',']
     num_comma_parts = len([p for p in comma_parts if p.strip()]) # Count non-empty parts
 
     # Check if *any* non-empty part contains ' to '
@@ -758,25 +734,18 @@ def classify_main(main_str: str) -> str:
             return "Range Value" # e.g., "10A to 20A" or "10 to 20"
         else:
             # Single part, not a range. Check content.
-            # Does it contain any letters/unit symbols?
             if has_unit_chars:
-                 # Attempt numeric extraction to differentiate "10A" from "Typ"
-                 num_val, _, _, _, err_flag = extract_numeric_and_unit_analysis(single_part, {}, {}) # Use empty maps for simple check
-                 if num_val is not None and not err_flag:
-                     return "Single Value" # e.g., "10A", "50%", "25°C"
-                 else:
-                      # Contains unit chars but not parseable as number+unit (e.g., "Typical", "None")
-                      return "Complex Single"
+                return "Single Value" # e.g., "10A", "50%", "25°C"
             # Check if it's purely numeric (allowing sign, decimal, exponent)
             elif re.fullmatch(r'[+\-±]?\d*(?:\.\d+)?(?:[eE][+\-]?\d+)?', single_part):
-                # Check it's not empty string or just sign if regex allows optional parts
-                if single_part and single_part not in ['+', '-', '±']:
+                # Check it's not empty string if regex allows optional parts
+                if single_part:
                      return "Number" # e.g., "10", "-5.5", ".5"
                 else:
-                     return "Unknown Single Structure" # Empty or just sign after processing?
+                     return "Unknown Single Structure" # Empty after processing?
             else:
                 # Contains other characters, maybe mixed alphanumeric, or unparsed structure?
-                return "Complex Single" # E.g. "Typ 5", "N/A"
+                return "Complex Single" # E.g. "Typ 5", "Approx 10V" (if V not base unit)
     else:
         return "" # Treat as empty
 
@@ -784,7 +753,13 @@ def classify_main(main_str: str) -> str:
 def classify_sub_value(subval: str):
     """
     Classifies a single sub-value string, which might contain main @ condition.
-    (Keep existing function)
+
+    Args:
+        subval (str): The sub-value string (e.g., one item from a comma-split list).
+
+    Returns:
+        tuple: (classification_str, has_range_main, has_multi_main,
+                has_range_cond, has_multi_cond, cond_item_count, main_item_count)
     """
     subval = str(subval).strip()
     if not subval:
@@ -793,14 +768,10 @@ def classify_sub_value(subval: str):
     # Split into main and condition parts based on '@' outside parentheses
     main_part = subval
     cond_part = ""
-    at_split = split_outside_parens(subval, ['@']) # Use robust split
+    at_split = split_outside_parens(subval, ['@'])
     if len(at_split) > 1:
         main_part = at_split[0].strip()
-        try:
-             at_index = at_split.index('@')
-             cond_part = "".join(at_split[at_index + 1:]).strip()
-        except ValueError:
-             cond_part = "" # Fallback
+        cond_part = "@".join(at_split[1:]).strip()
     elif len(at_split) == 1:
         main_part = at_split[0].strip()
 
@@ -844,7 +815,14 @@ def classify_value_type_detailed(raw_value: str):
     """
     Performs detailed classification of a raw value string, identifying sub-values,
     their structure (main/condition, range/single/multi), identifiers, and counts.
-    (Keep existing function)
+
+    Args:
+        raw_value (str): The complete value string to classify.
+
+    Returns:
+        tuple: (final_class_str, identifiers_str, sub_value_count,
+                max_cond_item_count, any_range_main, any_multi_main,
+                any_range_cond, any_multi_cond, max_main_item_count)
     """
     raw_value = str(raw_value).strip()
     if not raw_value:
@@ -857,11 +835,21 @@ def classify_value_type_detailed(raw_value: str):
     identifiers = ', '.join(found_parens_content)
 
     # --- Determine Sub-Values ---
-    # Use the simpler split_outside_parens by comma.
+    # The primary separator for distinct sub-values is COMMA, *unless* that comma
+    # is part of a condition definition following an '@'.
+    # Heuristic: Split by comma outside parentheses. Then, if a part *doesn't* contain '@'
+    # but the *previous* part did, consider merging it back as part of the condition.
+    # Example: "A @ X, Y" -> initial split ["A @ X", "Y"]. Since "Y" has no "@" and previous did, merge?
+    # Example: "A @ X, B @ Y" -> initial split ["A @ X", "B @ Y"]. Both have "@", keep separate.
+    # Example: "A, B" -> initial split ["A", "B"]. Keep separate.
+    # Example: "A @ X to Y, Z" -> initial split ["A @ X to Y", "Z"]. Keep separate.
+
+    # Let's stick to the simpler split_outside_parens by comma for now.
     # This assumes commas are primarily for separating independent values/measurements.
     subvals_raw = split_outside_parens(raw_value, [','])
-    # Filter out the delimiter token ',' itself
-    subvals = [sv.strip() for sv in subvals_raw if sv.strip() and sv != ',']
+
+    # Filter out empty strings that might result from splitting ", ,"
+    subvals = [sv.strip() for sv in subvals_raw if sv.strip()]
 
     # Ensure we have at least one subval if the raw_value wasn't empty but split resulted in none
     if not subvals and raw_value:
@@ -889,7 +877,7 @@ def classify_value_type_detailed(raw_value: str):
         unique_valid_classes = set(valid_classifications)
         if len(unique_valid_classes) == 1:
             # All valid sub-values have the same structure
-            base_class = next(iter(unique_valid_classes)) if unique_valid_classes else "Unknown"
+            base_class = next(iter(unique_valid_classes))
             final_class = f"Multiple ({sub_value_count}x) {base_class}"
         elif len(unique_valid_classes) > 1:
             # Mixed structures among sub-values
@@ -902,7 +890,7 @@ def classify_value_type_detailed(raw_value: str):
 
     # Aggregate boolean flags (True if *any* sub-value had the feature)
     has_range_in_main_overall = any(res[1] for res in sub_results)
-    has_multi_value_in_main_overall = any(res[2] for res in sub_results) # Check based on 'Multi Value' class? classify_sub_value logic seems ok.
+    has_multi_value_in_main_overall = any(res[2] for res in sub_results)
     has_range_in_condition_overall = any(res[3] for res in sub_results)
     has_multiple_conditions_overall = any(res[4] for res in sub_results)
 
@@ -943,32 +931,24 @@ def fix_exceptions(s):
 
 
 def replace_numbers_keep_sign_all(s: str) -> str:
-    """
-    Replaces all numbers (incl. scientific) with '', preserving preceding sign
-    and other characters. Needed for the input to the sample's resolve_compound_unit.
-    Example: "10.0 V" -> " V"
-             "-5mA @ 25.0 C" -> "-mA @  C"
-             "10" -> ""
-    (This matches the sample's apparent goal for the input to resolve_compound_unit)
-    """
+    """Replaces all numbers (incl. scientific) with '$', preserving preceding sign."""
     s = str(s)
-    # Remove digits, decimal points. Keep letters, symbols, spaces, and signs that might be attached to units/text.
-    # This is simpler than the sample's 'replace_numbers_keep_sign' which used '$'.
-    # Let's use the logic from sample's `compute_normalized_unit` which calls `replace_numbers_keep_sign`.
-    # The sample's `replace_numbers_keep_sign` does `re.sub(r'[\d\.\+-]+', '', text).strip()`
-    # This REMOVES signs along with numbers/dots. Let's stick to that for compatibility.
-    return re.sub(r'[\d\.]+', '', s) # Keep signs, remove digits and dots
+    # Regex captures optional sign ([+-]?), then digits with optional decimal/exponent.
+    # It replaces the number part with '$', keeping the sign captured in group 1 (\1).
+    # Handle standalone signs not followed by digits? No, regex requires digits.
+    # Ensure it handles cases like ".5" correctly -> might become just "$"?
+    # Pattern: (optional sign) followed by (digits OR .digits OR digits.digits) with optional exponent
+    pattern = r'([+-]?)(\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?'
+    return re.sub(pattern, r'\1$', s)
 
 
 def replace_numbers_keep_sign_outside_parens(s: str) -> str:
     """Replaces numbers with '$' (keeping sign) only outside parentheses."""
-    # This function might not be needed if we use replace_numbers_keep_sign_all
-    # Keeping it here for now.
     s = str(s) # Ensure string
     result = []
     i = 0
     depth = 0
-    # Use the same number pattern as replace_numbers_keep_sign_all (original version using $)
+    # Use the same number pattern as replace_numbers_keep_sign_all
     number_pattern = re.compile(r'([+-]?)(\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?')
 
     while i < len(s):
