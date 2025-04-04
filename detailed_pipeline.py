@@ -122,7 +122,8 @@ def detailed_analysis_pipeline(df, base_units, multipliers_dict):
             # row_results['Normalized Unit (Parens Intact)'] = replace_numbers_keep_sign_outside_parens(val_str)
 
             # 3. Absolute Unit Resolution (Resolve to base units in structure)
-            row_results["Absolute Unit"] = resolve_compound_unit(val_str, base_units, multipliers_dict)
+            row_results["Absolute Unit"] = resolve_compound_unit(replace_numbers_keep_sign_all(val_str), base_units, multipliers_dict)
+
 
             # 4. Unit Analysis (Main vs Condition, consistency)
             unit_analysis_results = analyze_value_units(val_str, base_units, multipliers_dict)
