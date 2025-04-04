@@ -1,3 +1,5 @@
+# detailed_pipeline.py
+
 #############################################
 # MODULE: DETAILED ANALYSIS PIPELINE
 # Purpose: Implements the second pipeline logic:
@@ -15,12 +17,52 @@ import streamlit as st # For error/warning/debug messages
 from mapping_utils import read_mapping_file
 from analysis_helpers import (
     classify_value_type_detailed,
-    replace_numbers_keep_sign_all,
-    resolve_compound_unit,
+    # Import functions needed for the *new* Absolute Unit calculation
+    replace_numbers_keep_sign_all, # Use the version that removes numbers/dots, keeps sign? Check analysis_helpers.
+    split_outside_parens,          # Used by the new resolve_compound_unit
+    process_unit_token,            # Used by the new resolve_compound_unit
+    # Keep other needed imports
     analyze_value_units,
     extract_numeric_info_for_value,
-    safe_str # Keep safe_str if used directly here, or ensure it's used within called helpers
+    safe_str,
+    MULTIPLIER_MAPPING, # Needed if resolve_compound_unit uses it directly (it does via process_unit_token)
+    base_units as global_base_units_placeholder # Example if needed, but better to pass base_units
 )
+
+
+# --- START: New resolve_compound_unit function (from sample script) ---
+def resolve_compound_unit(normalized_unit_text, base_units, multipliers_dict):
+    """
+    (Adapted from sample script)
+    Takes a normalized string (numbers removed) and resolves units within its structure,
+    prepending '$' to base units.
+
+    Args:
+        normalized_unit_text (str): The value string *after* number removal.
+        base_units (set): Known base units.
+        multipliers_dict (dict): Multiplier map.
+
+    Returns:
+        str: A string representing the structure with resolved base units (e.g., "$V@$A").
+    """
+    # Use the robust split_outside_parens which captures delimiters
+    tokens = split_outside_parens(normalized_unit_text, delimiters=["to", ",", "@"])
+    resolved_parts = []
+    for part in tokens:
+        # Check if the part is one of the delimiters we split by
+        if part in ["to", ",", "@"]:
+            resolved_parts.append(part) # Keep delimiters as is
+        else:
+            # If it's not a delimiter, process it as a potential unit token
+            # The process_unit_token function (from analysis_helpers, adapted from sample)
+            # handles potential numeric remnants (should be none here), units, and parens.
+            # It calls process_unit_token_no_paren internally.
+            if part: # Ensure part is not empty
+                 resolved_parts.append(process_unit_token(part, base_units, multipliers_dict))
+
+    # Join the resolved parts. The sample uses direct join "".join()
+    return "".join(resolved_parts)
+# --- END: New resolve_compound_unit function ---
 
 
 # --- detailed_analysis_pipeline function (core logic) ---
@@ -73,7 +115,7 @@ def detailed_analysis_pipeline(df, base_units, multipliers_dict):
                 'Classification': "Empty", 'Identifiers': "", 'SubValueCount': 0,
                 'ConditionCount': 0, 'HasRangeInMain': False, 'HasMultiValueInMain': False,
                 'HasRangeInCondition': False, 'HasMultipleConditions': False, 'MainItemCount': 0,
-                'DetailedValueType': "Empty", 'Normalized Unit': "", 'Absolute Unit': "",
+                'DetailedValueType': "Empty", 'Normalized Unit': "", 'Absolute Unit': "", # Ensure Absolute Unit is blank
                 'MainUnits': "", 'MainDistinctUnitCount': 0, 'MainUnitsConsistent': True,
                 'ConditionUnits': "", 'ConditionDistinctUnitCount': 0, 'ConditionUnitsConsistent': True,
                 'OverallUnitConsistency': True, 'ParsingErrorFlag': False,
@@ -112,21 +154,27 @@ def detailed_analysis_pipeline(df, base_units, multipliers_dict):
                 dvt = cls if cls else "Unknown" # Show classification result directly
             row_results['DetailedValueType'] = dvt
 
-            # 2. Normalization (Replace numbers with '$')
-            # Apply to the original value string
+            # 2. Normalization (For "Normalized Unit" column - using '$' replacement logic)
+            # The sample used a different normalization (removing numbers/dots).
+            # Let's keep the original pipeline's approach for the "Normalized Unit" column
+            # which used '$' replacement. Or use the sample's?
+            # The sample's `compute_normalized_unit` calls `replace_numbers_keep_sign` which removes numbers/dots/signs.
+            # Let's call the number/dot remover `normalized_unit_text_for_absolute`
+            # And keep the '$' replacer for the 'Normalized Unit' column if desired, or use the sample's logic there too.
+            # Decision: Use sample's logic for 'Normalized Unit' column as well for consistency.
+            # The sample's `compute_normalized_unit` calls `replace_numbers_keep_sign`.
+            # In analysis_helpers, `replace_numbers_keep_sign_all` was modified to match sample.
             row_results['Normalized Unit'] = replace_numbers_keep_sign_all(val_str)
-            # Optional: Add the version that keeps numbers in parentheses if needed
-            # row_results['Normalized Unit (Parens Intact)'] = replace_numbers_keep_sign_outside_parens(val_str)
 
-            # 3. Absolute Unit Resolution (Resolve to base units in structure)
-            #just updated one coulmn
-            row_results["Absolute Unit"] = resolve_compound_unit(replace_numbers_keep_sign_all(val_str), base_units, multipliers_dict)
-
-
-
+            # 3. Absolute Unit Resolution (Using the new logic)
+            # First, create the input needed by the new resolve_compound_unit
+            # This requires removing numbers/dots as per sample's replace_numbers_keep_sign
+            normalized_unit_text_for_absolute = replace_numbers_keep_sign_all(val_str)
+            # Now call the new resolve_compound_unit function
+            row_results["Absolute Unit"] = resolve_compound_unit(normalized_unit_text_for_absolute, base_units, multipliers_dict)
 
 
-            # 4. Unit Analysis (Main vs Condition, consistency)
+            # 4. Unit Analysis (Main vs Condition, consistency) - Keep existing logic
             unit_analysis_results = analyze_value_units(val_str, base_units, multipliers_dict)
             row_results["MainUnits"] = ", ".join(safe_str(u) for u in unit_analysis_results["main_units"]) # Show all units found (incl None)
             row_results["MainDistinctUnitCount"] = len(unit_analysis_results["main_distinct_units"]) # Count of valid distinct units
@@ -147,7 +195,7 @@ def detailed_analysis_pipeline(df, base_units, multipliers_dict):
                 cond_units_str = "Uniform: " + cond_units_sorted[0] if unit_analysis_results["condition_units_consistent"] else "Mixed: " + ", ".join(cond_units_sorted)
             row_results["SubValueUnitVariationSummary"] = f"Main: {main_units_str}; Condition: {cond_units_str}"
 
-            # 5. Numeric Value Extraction & Normalization (to base units)
+            # 5. Numeric Value Extraction & Normalization (to base units) - Keep existing logic
             numeric_info = extract_numeric_info_for_value(val_str, base_units, multipliers_dict)
             row_results["MainNumericValues"] = ", ".join(safe_str(x) for x in numeric_info["main_numeric"])
             row_results["ConditionNumericValues"] = ", ".join(safe_str(x) for x in numeric_info["condition_numeric"])
@@ -162,7 +210,7 @@ def detailed_analysis_pipeline(df, base_units, multipliers_dict):
             parsing_error = any(numeric_info["main_errors"]) or any(numeric_info["condition_errors"])
             row_results["ParsingErrorFlag"] = parsing_error
 
-            # 6. Summaries and Derived Metrics
+            # 6. Summaries and Derived Metrics - Keep existing logic
             # Collect all valid normalized numeric values and valid base units found
             all_normalized_numeric = [v for v in numeric_info["normalized_main"] + numeric_info["normalized_condition"] if isinstance(v, (int, float))]
             all_base_units_found = [u for u in numeric_info["main_base_units"] + numeric_info["condition_base_units"] if u is not None] # Filter None
@@ -194,6 +242,7 @@ def detailed_analysis_pipeline(df, base_units, multipliers_dict):
              error_results.update({
                  'Classification': "Analysis Error",
                  'DetailedValueType': f"Error: {e}",
+                 'Absolute Unit': "Error during generation", # Indicate error here too
                  'ParsingErrorFlag': True
                  # Fill other columns with defaults?
              })
@@ -214,7 +263,7 @@ def detailed_analysis_pipeline(df, base_units, multipliers_dict):
         analysis_cols = [
              'Classification', 'Identifiers', 'SubValueCount', 'ConditionCount',
              'HasRangeInMain', 'HasMultiValueInMain', 'HasRangeInCondition', 'HasMultipleConditions', 'MainItemCount',
-             'DetailedValueType', 'Normalized Unit', 'Absolute Unit',
+             'DetailedValueType', 'Normalized Unit', 'Absolute Unit', # Include Absolute Unit
              'MainUnits', 'MainDistinctUnitCount', 'MainUnitsConsistent', 'ConditionUnits',
              'ConditionDistinctUnitCount', 'ConditionUnitsConsistent', 'OverallUnitConsistency',
              'ParsingErrorFlag', 'SubValueUnitVariationSummary', 'MainNumericValues', 'ConditionNumericValues',
