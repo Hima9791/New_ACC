@@ -572,21 +572,25 @@ def process_unit_token(token, base_units, multipliers_dict):
     return f"{lead}{numeric}{space1}{processed_core}{space2}{paren}{trail}"
 
 
-def resolve_compound_unit(normalized_unit_string, base_units, multipliers_dict):
-    raw_value = str(normalized_unit_string).strip()
-    tokens = split_outside_parens(raw_value, delimiters=["to", ",", "@"])
-    resolved_structure = []
+def resolve_compound_unit(normalized_unit, base_units, multipliers_dict):
+    """
+    Processes a normalized unit string that may contain compound expressions
+    with "to", ",", or "@" while ignoring parentheses.
+    Returns a string with prefixes removed, preserving formatting.
+    """
+    tokens = split_outside_parens(normalized_unit, delimiters=["to", ",", "@"])
+    resolved_parts = []
 
     for part in tokens:
         if part in ["to", ",", "@"]:
-            resolved_structure.append(part)
+            resolved_parts.append(part)
         elif part.strip() == "":
             continue
         else:
-            resolved_structure.append(process_unit_token(part, base_units, multipliers_dict))
+            resolved_parts.append(process_unit_token(part, base_units, multipliers_dict))
 
-    final_repr = " ".join(resolved_structure)  # use space to preserve spacing
-    return final_repr
+    return " ".join(resolved_parts)  # 👈 PRESERVE SPACING
+
 
 
 
