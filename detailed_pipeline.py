@@ -15,18 +15,19 @@ import streamlit as st # For error/warning/debug messages
 
 # Import necessary functions and constants from other modules
 from mapping_utils import read_mapping_file
+# Corrected import block:
 from analysis_helpers import (
     classify_value_type_detailed,
     # Import functions needed for the *new* Absolute Unit calculation
-    replace_numbers_keep_sign_all, # Use the version that removes numbers/dots, keeps sign? Check analysis_helpers.
+    replace_numbers_keep_sign_all,
     split_outside_parens,          # Used by the new resolve_compound_unit
     process_unit_token,            # Used by the new resolve_compound_unit
     # Keep other needed imports
     analyze_value_units,
     extract_numeric_info_for_value,
     safe_str,
-    MULTIPLIER_MAPPING, # Needed if resolve_compound_unit uses it directly (it does via process_unit_token)
-    base_units as global_base_units_placeholder # Example if needed, but better to pass base_units
+    MULTIPLIER_MAPPING # Needed if resolve_compound_unit uses it directly (it does via process_unit_token)
+    # REMOVED: base_units as global_base_units_placeholder
 )
 
 
@@ -58,6 +59,7 @@ def resolve_compound_unit(normalized_unit_text, base_units, multipliers_dict):
             # handles potential numeric remnants (should be none here), units, and parens.
             # It calls process_unit_token_no_paren internally.
             if part: # Ensure part is not empty
+                 # Pass base_units and multipliers_dict correctly
                  resolved_parts.append(process_unit_token(part, base_units, multipliers_dict))
 
     # Join the resolved parts. The sample uses direct join "".join()
@@ -73,8 +75,8 @@ def detailed_analysis_pipeline(df, base_units, multipliers_dict):
 
     Args:
         df (pd.DataFrame): Input DataFrame (must contain 'Value' column).
-        base_units (set): Set of known base units.
-        multipliers_dict (dict): Dictionary mapping multiplier symbols to factors.
+        base_units (set): Set of known base units. Passed correctly from caller.
+        multipliers_dict (dict): Dictionary mapping multiplier symbols to factors. Passed correctly from caller.
 
     Returns:
         pd.DataFrame: DataFrame with original data and added analysis columns.
@@ -154,25 +156,17 @@ def detailed_analysis_pipeline(df, base_units, multipliers_dict):
                 dvt = cls if cls else "Unknown" # Show classification result directly
             row_results['DetailedValueType'] = dvt
 
-            # 2. Normalization (For "Normalized Unit" column - using '$' replacement logic)
-            # The sample used a different normalization (removing numbers/dots).
-            # Let's keep the original pipeline's approach for the "Normalized Unit" column
-            # which used '$' replacement. Or use the sample's?
-            # The sample's `compute_normalized_unit` calls `replace_numbers_keep_sign` which removes numbers/dots/signs.
-            # Let's call the number/dot remover `normalized_unit_text_for_absolute`
-            # And keep the '$' replacer for the 'Normalized Unit' column if desired, or use the sample's logic there too.
-            # Decision: Use sample's logic for 'Normalized Unit' column as well for consistency.
-            # The sample's `compute_normalized_unit` calls `replace_numbers_keep_sign`.
-            # In analysis_helpers, `replace_numbers_keep_sign_all` was modified to match sample.
+            # 2. Normalization (For "Normalized Unit" column - using sample's logic)
             row_results['Normalized Unit'] = replace_numbers_keep_sign_all(val_str)
 
             # 3. Absolute Unit Resolution (Using the new logic)
-            # First, create the input needed by the new resolve_compound_unit
-            # This requires removing numbers/dots as per sample's replace_numbers_keep_sign
+            # Create the input needed by the new resolve_compound_unit
             normalized_unit_text_for_absolute = replace_numbers_keep_sign_all(val_str)
-            # Now call the new resolve_compound_unit function
-            row_results["Absolute Unit"] = resolve_compound_unit(normalized_unit_text_for_absolute, base_units, multipliers_dict)
-
+            # Call the new resolve_compound_unit function
+            # Ensure base_units and multipliers_dict are passed correctly
+            row_results["Absolute Unit"] = resolve_compound_unit(
+                normalized_unit_text_for_absolute, base_units, multipliers_dict
+            )
 
             # 4. Unit Analysis (Main vs Condition, consistency) - Keep existing logic
             unit_analysis_results = analyze_value_units(val_str, base_units, multipliers_dict)
