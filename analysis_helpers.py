@@ -9,12 +9,7 @@ import re
 import pandas as pd
 import streamlit as st # For warnings/debug, consider replacing with logging
 
-def replace_numbers_keep_sign(text):
-    """
-    Remove digits, decimal points, and plus/minus signs, returning only the letters and symbols.
-    Example: "12.25MHz" => "MHz"
-    """
-    return re.sub(r'[\d\.\+-]+', '', text).strip()
+
 # Import constants from mapping_utils
 # Assumes mapping_utils.py is in the same directory or accessible via Python path
 try:
