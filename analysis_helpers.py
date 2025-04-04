@@ -372,32 +372,32 @@ def extract_numeric_info_for_value(raw_value, base_units, multipliers_dict):
 
 # --- change1 seems to have been incorporated into process_unit_token_no_paren ---
 def process_unit_token_no_paren(token, base_units, multipliers_dict):
-    """
-    DEPRECATED? analyze_unit_part and extract_numeric_and_unit_analysis are preferred.
-    Attempts to resolve a token (without parentheses) to its base unit.
-    """
     token = token.strip()
-    st.warning("DEBUG: process_unit_token_no_paren may be deprecated.") # Add warning
-
-    # Handle currency symbol ($) explicitly if needed, otherwise treat like other units.
-    # Let's assume '$' is NOT a base unit unless added to mapping.xlsx.
-
-    # Direct match for base unit
-    if token in base_units:
-        return token # Return the base unit itself
-
-    # Check for prefix + base unit
-    sorted_prefixes = sorted(multipliers_dict.keys(), key=len, reverse=True)
-    for prefix in sorted_prefixes:
-        if token.startswith(prefix):
-            possible_base = token[len(prefix):].strip()
-            if possible_base in base_units:
-                # We found a valid prefix and base unit combination.
-                return possible_base # Return the identified base unit
-
-    # If no match, it's an unknown unit or just text without a unit
-    # st.write(f"DEBUG: Unit part '{token}' not resolved to a base unit.")
-    return None # Indicate no base unit could be resolved
+    if token.startswith('$'):
+        after_dollar = token[1:].strip()  # Remove '$' and strip spaces
+        if after_dollar == "":
+            return "$"
+        # If the entire token after '$' is a base unit, return it directly.
+        if after_dollar in base_units:
+            return "$" + after_dollar
+        sorted_prefixes = sorted(multipliers_dict.keys(), key=len, reverse=True)
+        for prefix in sorted_prefixes:
+            if after_dollar.startswith(prefix):
+                possible_base = after_dollar[len(prefix):]
+                if possible_base in base_units:
+                    return "$" + possible_base
+        return f"Error: Undefined unit '{after_dollar}' (no recognized prefix)"
+    else:
+        stripped_token = token.strip()
+        if stripped_token in base_units:
+            return "$" + stripped_token
+        sorted_prefixes = sorted(multipliers_dict.keys(), key=len, reverse=True)
+        for prefix in sorted_prefixes:
+            if stripped_token.startswith(prefix):
+                possible_base = stripped_token[len(prefix):]
+                if possible_base in base_units:
+                    return "$" + possible_base
+        return f"Error: Undefined unit '{stripped_token}' (no recognized prefix)"
 
 
 def analyze_unit_part(part_text, base_units, multipliers_dict):
