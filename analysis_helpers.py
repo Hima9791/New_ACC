@@ -372,34 +372,44 @@ def extract_numeric_info_for_value(raw_value, base_units, multipliers_dict):
 
 # --- change1 seems to have been incorporated into process_unit_token_no_paren ---
 def process_unit_token_no_paren(token, base_units, multipliers_dict):
-    token = token.strip()
+    token = str(token).strip()
+
+    # If starts with '$' → handle as normalized token
     if token.startswith('$'):
-        after_dollar = token[1:]
-        # Check if there is a space right after the "$"
+        after_dollar = token[1:]  # remove the '$'
         has_space = after_dollar.startswith(" ")
         stripped = after_dollar.strip()
+
         if stripped == "":
             return "$ " if has_space else "$"
+
         if stripped in base_units:
             return "$ " + stripped if has_space else "$" + stripped
+
         sorted_prefixes = sorted(multipliers_dict.keys(), key=len, reverse=True)
         for prefix in sorted_prefixes:
             if stripped.startswith(prefix):
                 possible_base = stripped[len(prefix):]
                 if possible_base in base_units:
                     return "$ " + possible_base if has_space else "$" + possible_base
+
+        # 👇 Preserve your original error comment
         return f"Error: Undefined unit '{stripped}' (no recognized prefix)"
-    else:
-        stripped_token = token.strip()
-        if stripped_token in base_units:
-            return "$" + stripped_token
-        sorted_prefixes = sorted(multipliers_dict.keys(), key=len, reverse=True)
-        for prefix in sorted_prefixes:
-            if stripped_token.startswith(prefix):
-                possible_base = stripped_token[len(prefix):]
-                if possible_base in base_units:
-                    return "$" + possible_base
-        return f"Error: Undefined unit '{stripped_token}' (no recognized prefix)"
+
+    # Otherwise, token does NOT start with '$' — do NOT add '$'
+    stripped_token = token.strip()
+    if stripped_token in base_units:
+        return stripped_token  # no '$' added
+
+    sorted_prefixes = sorted(multipliers_dict.keys(), key=len, reverse=True)
+    for prefix in sorted_prefixes:
+        if stripped_token.startswith(prefix):
+            possible_base = stripped_token[len(prefix):]
+            if possible_base in base_units:
+                return possible_base  # again, no '$'
+
+    return f"Error: Undefined unit '{stripped_token}' (no recognized prefix)"
+
 
 
 
