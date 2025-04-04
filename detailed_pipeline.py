@@ -120,7 +120,8 @@ def detailed_analysis_pipeline(df, base_units, multipliers_dict):
 
             # 3. Absolute Unit Resolution (Resolve to base units in structure)
             #just updated one coulmn
-            row_results["Absolute Unit"] = resolve_compound_unit(replace_numbers_keep_sign_all(val_str), base_units, multipliers_dict)
+            row_results["Absolute Unit"] = resolve_compound_unit(remove_numbers(val_str), base_units, multipliers_dict)
+
 
 
 
