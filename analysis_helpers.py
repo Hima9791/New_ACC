@@ -573,25 +573,21 @@ def process_unit_token(token, base_units, multipliers_dict):
 
 
 def resolve_compound_unit(normalized_unit_string, base_units, multipliers_dict):
-    """
-    Takes a raw value string and resolves the base units within its structure.
-    """
     raw_value = str(normalized_unit_string).strip()
     tokens = split_outside_parens(raw_value, delimiters=["to", ",", "@"])
     resolved_structure = []
 
     for part in tokens:
-        part = part.strip()
         if part in ["to", ",", "@"]:
             resolved_structure.append(part)
-        elif part == "":
+        elif part.strip() == "":
             continue
         else:
-            unit = process_unit_token(part, base_units, multipliers_dict)
-            resolved_structure.append(unit if unit is not None else "")  # prevent None
+            resolved_structure.append(process_unit_token(part, base_units, multipliers_dict))
 
-    final_repr = "".join(resolved_structure)
+    final_repr = " ".join(resolved_structure)  # use space to preserve spacing
     return final_repr
+
 
 
 def count_main_items(main_str: str) -> int:
