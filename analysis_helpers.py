@@ -545,23 +545,28 @@ def analyze_value_units(raw_value, base_units, multipliers_dict):
 
 
 def process_unit_token(token, base_units, multipliers_dict):
-    """
-    DEPRECATED? Preferred: extract_numeric_and_unit_analysis or analyze_unit_part.
-    Processes a token, aiming to return the base unit.
-    """
-    st.warning("DEBUG: process_unit_token may be deprecated.") # Add warning
-    # Let's reuse the robust extraction logic:
-    _, _, base_unit, _, err_flag = extract_numeric_and_unit_analysis(token, base_units, multipliers_dict)
-
-    if not err_flag and base_unit:
-        # Add special formatting if needed (Example was: Ohm -> $ Ohm) - Removed for neutrality
-        return base_unit # Return the resolved base unit
-    elif str(token).strip() in base_units:
-         return str(token).strip() # It was just a base unit
-    else:
-        # Handle errors or unknowns
-        # Return None or error marker? Let's return None.
-        return None # Indicate unresolved
+    pattern = re.compile(
+        r'^(?P<lead>\s*)'
+        r'(?P<numeric>[+\-±]?\d*(?:\.\d+)?)'
+        r'(?P<space1>\s*)'
+        r'(?P<unit>.*?)(?P<space2>\s*)'
+        r'(?P<paren>\([^)]*\))?'
+        r'(?P<trail>\s*)$'
+    )
+    m = pattern.match(token)
+    if not m:
+        return token
+    lead = m.group('lead') or ""
+    numeric = m.group('numeric') or ""
+    space1 = m.group('space1') or ""
+    unit_part = m.group('unit') or ""
+    space2 = m.group('space2') or ""
+    paren = m.group('paren') or ""
+    trail = m.group('trail') or ""
+    core = unit_part.strip()
+    processed_core = process_unit_token_no_paren(core, base_units, multipliers_dict)
+    # For 'ohm' or other special cases, you could do more logic here if needed.
+    return f"{lead}{numeric}{space1}{processed_core}{space2}{paren}{trail}"
 
 
 def resolve_compound_unit(normalized_unit_string, base_units, multipliers_dict):
