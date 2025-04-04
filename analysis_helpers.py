@@ -565,18 +565,96 @@ def process_unit_token(token, base_units, multipliers_dict):
 
 
 def resolve_compound_unit(normalized_unit_string, base_units, multipliers_dict):
-    tokens = split_outside_parens(normalized_unit_string, delimiters=["to", ",", "@"])
-    resolved_parts = []
-    for part in tokens:
-        if part in ["to", ",", "@"]:
-            resolved_parts.append(part)
+    """
+    Takes a raw value string and resolves the base units within its structure.
+    Example: "10V @ 5mA to 10mA" -> "V @ A" (assuming consistent units)
+             "10V @ 5mA, 6mA" -> "V @ A"
+             "10V to 12V @ 5A" -> "V @ A"
+             "10V, 1A @ 5W" -> "V, A @ W" (representing distinct units found)
+
+    Args:
+        normalized_unit_string (str): The *raw* value string to analyze.
+        base_units (set): Known base units.
+        multipliers_dict (dict): Multiplier map.
+
+    Returns:
+        str: A string representing the resolved base units in the structure.
+    """
+    raw_value = str(normalized_unit_string).strip() # Input is the raw value string
+    resolved_structure = []
+
+    # Split by '@' first, keeping the delimiter conceptually
+    at_split = split_outside_parens(raw_value, ['@'])
+    main_part_str = raw_value
+    cond_part_str = ""
+    has_condition = False
+
+    if len(at_split) > 1:
+        main_part_str = at_split[0].strip()
+        cond_part_str = "@".join(at_split[1:]).strip()
+        has_condition = True
+    elif len(at_split) == 1:
+        main_part_str = at_split[0].strip()
+
+
+    # --- Resolve units in the main part ---
+    main_analysis = analyze_unit_part(main_part_str, base_units, multipliers_dict)
+    # Represent main part units. If multiple distinct units, join them.
+    if main_analysis["distinct_units"]:
+         # Sort for consistent output order
+         main_unit_repr = ", ".join(sorted(list(main_analysis["distinct_units"])))
+    else:
+         main_unit_repr = "None" # No valid units found in main part
+    resolved_structure.append(main_unit_repr)
+
+
+    # --- Resolve units in the condition part (if exists) ---
+    if has_condition:
+        resolved_structure.append("@") # Add the separator
+        cond_analysis = analyze_unit_part(cond_part_str, base_units, multipliers_dict)
+        # Represent condition part units
+        if cond_analysis["distinct_units"]:
+             cond_unit_repr = ", ".join(sorted(list(cond_analysis["distinct_units"])))
         else:
-            if part == "":
-                continue
-            resolved_parts.append(process_unit_token(part, base_units, multipliers_dict))
-    return "".join(resolved_parts)
+             cond_unit_repr = "None" # No valid units found in condition part
+        resolved_structure.append(cond_unit_repr)
+
+    # Join the parts with spaces, filtering out "None" unless it's the only part
+    final_repr_parts = [p for p in resolved_structure if p != "None"]
+
+    if not final_repr_parts:
+         # If both main and condition had no units, return "None" or ""? Let's use ""
+         return ""
+    else:
+         # Join remaining parts, ensure "@" is handled cleanly
+         final_repr = " ".join(final_repr_parts)
+         # Clean up spacing around "@" if needed (e.g., "V @ A")
+         final_repr = final_repr.replace(" @ ", "@")
+         return final_repr
 
 
+def count_main_items(main_str: str) -> int:
+    """Counts logical items in the main part of a value string (pre-@)."""
+    main_str = remove_parentheses_detailed(main_str).strip()
+    if not main_str:
+        return 0
+
+    # Split by comma first to identify distinct comma-separated items
+    comma_parts = split_outside_parens(main_str, [','])
+    count = 0
+    for part in comma_parts:
+        part_strip = part.strip()
+        if not part_strip: continue # Skip empty parts
+
+        # Treat each comma-separated part as one item, even if it's internally a range.
+        # Example: "10 to 20V, 30V" -> Counts as 2 items.
+        count += 1
+
+    # If no commas, check if the string is non-empty -> 1 item
+    if count == 0 and main_str:
+        return 1
+
+    return count
 
 
 def count_conditions(cond_str: str) -> int:
