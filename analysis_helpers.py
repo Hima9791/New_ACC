@@ -157,22 +157,12 @@ def extract_identifiers_detailed(text: str):
 
 
 def split_outside_parens(text, delimiters):
-    """
-    Splits text by delimiters, ignoring delimiters inside parentheses.
-
-    Args:
-        text (str): The text to split.
-        delimiters (list[str]): A list of delimiter strings.
-
-    Returns:
-        list[str]: A list of tokens.
-    """
-    text = str(text) # Ensure string input
+    text = str(text)  # Ensure string input
     tokens = []
     current = ""
     i = 0
     depth = 0
-    # Sort delimiters by length descending to match longest first (e.g., ' to ' before 'to')
+    # Sort delimiters by length descending to match longest first
     sorted_delims = sorted(delimiters, key=len, reverse=True)
 
     while i < len(text):
@@ -183,44 +173,34 @@ def split_outside_parens(text, delimiters):
             current += char
             i += 1
         elif char == ')':
-            # Ensure depth doesn't go below zero
             depth = max(0, depth - 1)
             current += char
             i += 1
         elif depth == 0:
-            # Check if any delimiter matches at the current position
             matched_delim = None
             for delim in sorted_delims:
-                # Check bounds before slicing
-                if i + len(delim) <= len(text) and text[i : i + len(delim)] == delim:
-                    # Basic check succeeded, consider it a match for now
-                    # More complex logic could check for surrounding whitespace if delimiters require it (e.g. ' to ')
+                if i + len(delim) <= len(text) and text[i:i+len(delim)] == delim:
                     matched_delim = delim
                     break
 
             if matched_delim:
-                # Found a delimiter outside parentheses
-                if current.strip(): # Add the part before the delimiter if not empty
+                if current.strip():
                     tokens.append(current.strip())
-                # Optionally add the delimiter itself as a token if needed:
-                # tokens.append(matched_delim)
-                current = "" # Reset current part
-                i += len(matched_delim) # Move index past the delimiter
+                tokens.append(matched_delim)  # <-- Preserve the delimiter token
+                current = ""
+                i += len(matched_delim)
             else:
-                # Not a delimiter, add char to current part
                 current += char
                 i += 1
         else:
-            # Inside parentheses, just add the char
             current += char
             i += 1
 
-    # Add the last part if any
     if current.strip():
         tokens.append(current.strip())
 
-    # Filter out empty strings that might result from splitting errors or consecutive delimiters
     return [token for token in tokens if token]
+
 
 
 def extract_numeric_info(part_text, base_units, multipliers_dict):
