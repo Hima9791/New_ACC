@@ -219,7 +219,6 @@ def split_outside_parens(text, delimiters):
 
     while i < len(text):
         char = text[i]
-
         if char == '(':
             depth += 1
             current += char
@@ -238,7 +237,7 @@ def split_outside_parens(text, delimiters):
             if matched_delim:
                 if current.strip():
                     tokens.append(current.strip())
-                tokens.append(matched_delim)  # <-- Preserve the delimiter token
+                # Do not append the delimiter token; use it only as a boundary.
                 current = ""
                 i += len(matched_delim)
             else:
