@@ -116,7 +116,7 @@ def extract_block_texts(main_key, category_name):
 
 
 from analysis_helpers import remove_parentheses_detailed, extract_numeric_and_unit_analysis
-import re
+
 
 def parse_value_unit_identifier(raw_chunk, base_units, multipliers_dict):
     # Use extract_numeric_and_unit_analysis to parse the entire token.
@@ -156,8 +156,6 @@ def parse_value_unit_identifier(raw_chunk, base_units, multipliers_dict):
 
     # Return the numeric string (with prefix appended) and the base unit.
     return numeric_str, base_unit
-
-
 
 
 
