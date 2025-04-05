@@ -29,17 +29,16 @@ from analysis_helpers import (
 # --- detailed_analysis_pipeline function (core logic) ---
 def detailed_analysis_pipeline(df, base_units, multipliers_dict):
     # ----- Add Normalized Unit column -----
-normalized_units = []
-for val in df['Value']:
-    # Ensure the value is converted to string and normalized
-    normalized_units.append(replace_numbers_keep_sign_all(str(val)))
-df['Normalized Unit'] = normalized_units
+    normalized_units = []
+    for val in df['Value']:
+        normalized_units.append(replace_numbers_keep_sign_all(str(val)))
+    df['Normalized Unit'] = normalized_units
 
-# ----- Compute Absolute Unit based on Normalized Unit -----
-absolute_units = []
-for norm_val in df['Normalized Unit']:
-    absolute_units.append(resolve_compound_unit(norm_val, base_units, multipliers_dict))
-df['Absolute Unit'] = absolute_units
+    # ----- Compute Absolute Unit based on Normalized Unit -----
+    absolute_units = []
+    for norm_val in df['Normalized Unit']:
+        absolute_units.append(resolve_compound_unit(norm_val, base_units, multipliers_dict))
+    df['Absolute Unit'] = absolute_units
 
     classifications   = []
     identifiers_list  = []
@@ -80,17 +79,6 @@ df['Absolute Unit'] = absolute_units
     df['HasRangeInCondition'] = any_range_cond
     df['HasMultipleConditions'] = any_multi_cond
     df['DetailedValueType'] = detailed_value_types
-
-    # Resolve absolute units (if "Normalized Unit" exists)
-    if "Normalized Unit" in df.columns:
-        unit_source = df["Normalized Unit"]
-    else:
-        unit_source = df["Value"]
-    resolved_units = []
-    for x in unit_source:
-        x_str = str(x)
-        resolved_units.append(resolve_compound_unit(x_str, base_units, multipliers_dict))
-    df["Absolute Unit"] = resolved_units
 
     # Analyze units in main vs condition
     main_units_list = []
@@ -160,21 +148,21 @@ df['Absolute Unit'] = absolute_units
         parsing_error_flag_list.append(parsing_error)
 
         # Summarize unit variation
-        main_units_list = sorted(list(ua["main_distinct_units"]))
-        if main_units_list:
-            if len(main_units_list) == 1:
-                main_variation = "Uniform: " + safe_str(main_units_list[0])
+        main_units = sorted(list(ua["main_distinct_units"]))
+        if main_units:
+            if len(main_units) == 1:
+                main_variation = "Uniform: " + safe_str(main_units[0])
             else:
-                main_variation = "Mixed: " + ", ".join(main_units_list)
+                main_variation = "Mixed: " + ", ".join(main_units)
         else:
             main_variation = "None"
 
-        condition_units_list = sorted(list(ua["condition_distinct_units"]))
-        if condition_units_list:
-            if len(condition_units_list) == 1:
-                condition_variation = "Uniform: " + safe_str(condition_units_list[0])
+        condition_units = sorted(list(ua["condition_distinct_units"]))
+        if condition_units:
+            if len(condition_units) == 1:
+                condition_variation = "Uniform: " + safe_str(condition_units[0])
             else:
-                condition_variation = "Mixed: " + ", ".join(condition_units_list)
+                condition_variation = "Mixed: " + ", ".join(condition_units)
         else:
             condition_variation = "None"
 
@@ -221,6 +209,7 @@ df['Absolute Unit'] = absolute_units
     df["AllDistinctUnitsUsed"] = distinct_units_all_list
 
     return df
+
 
 
 # --- Wrapper function (Entry point) ---
