@@ -186,7 +186,7 @@ def parse_value_unit_identifier(raw_chunk, base_units, multipliers_dict):
     )
     
     # Optional debug
-      print("DEBUG:", {
+    print("DEBUG:", {
         "raw_chunk": raw_chunk,
         "numeric_part": numeric_part,
         "leftover": leftover,
