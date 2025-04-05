@@ -113,129 +113,35 @@ def extract_block_texts(main_key, category_name):
 
 
 
+
+from analysis_helpers import extract_numeric_and_unit_analysis, remove_parentheses_detailed
+
 def parse_value_unit_identifier(raw_chunk, base_units, multipliers_dict):
-    """
-    Parses a raw text block (expected to be "number + unit" or just "unit") into:
-      - a numeric part (as a string)
-      - a recognized base unit (could be "A" or "A (Tc)" if both are in base_units)
-    preserving parentheses if the leftover text after numeric extraction matches
-    a known base unit exactly.
-
-    Returns: (value_str, base_unit_str)
-
-    Example:
-      raw_chunk = "357 A (Tc)"
-      base_units = {"A", "A (Tc)"}
-      => returns ("357", "A (Tc)")
-
-      raw_chunk = "50 A (Tc) typical"
-      => leftover is "A (Tc) typical" (not exactly "A (Tc)"), so parentheses are removed
-         or the robust parser tries to parse it. 
-    """
-
-    # Step 0: Trim whitespace
-    raw_chunk_stripped = raw_chunk.strip()
-    if not raw_chunk_stripped:
-        return ("", "")
-
-    # ---------------------------------------------------------------
-    # Step 1: Extract any leading numeric portion (including optional
-    # multiplier symbol, e.g. "k", "M", or "µ/μ") with a regex.
-    #   - Example: "357 A (Tc)" => numeric_part="357", leftover="A (Tc)"
-    #   - If no numeric portion is found, leftover=raw_chunk_stripped
-    # ---------------------------------------------------------------
-    match = re.match(r'^([+-]?\d+(?:\.\d+)?(?:[kMµμ]?))\s+(.*)$', raw_chunk_stripped)
+    # Split numeric part and the rest
+    match = re.match(r'([+-]?[\d\.]+(?:e[+-]?\d+)?)(.*)', raw_chunk)
     if match:
-        numeric_part = match.group(1).strip()  # e.g. "357"
-        leftover = match.group(2).strip()      # e.g. "A (Tc)"
+        value_string = match.group(1).strip()
+        unit_candidate = match.group(2).strip()
     else:
-        # No numeric portion found => the entire chunk is leftover
-        numeric_part = ""
-        leftover = raw_chunk_stripped
+        value_string = ""
+        unit_candidate = raw_chunk.strip()
 
-    # ---------------------------------------------------------------
-    # Step 2: Conditionally remove parentheses from leftover
-    #   - If leftover is exactly in base_units, skip removing parentheses
-    #   - Else, remove them
-    # ---------------------------------------------------------------
-    if leftover in base_units:
-        cleaned_leftover = leftover
+    # If the unit_candidate exactly matches one of the recognized units, preserve it.
+    if unit_candidate in base_units:
+        final_unit = unit_candidate
     else:
-        # If leftover has extra text or isn't exactly recognized,
-        # remove extraneous parentheses. E.g. "A (Tc) typical" => "A  typical"
-        cleaned_leftover = remove_parentheses_detailed(leftover).strip()
+        # Otherwise, remove parentheses as usual.
+        final_unit = remove_parentheses_detailed(unit_candidate)
 
-    # ---------------------------------------------------------------
-    # Step 3: Combine numeric + leftover for robust parsing
-    #   "357" + "A (Tc)" => "357 A (Tc)"
-    # ---------------------------------------------------------------
-    if numeric_part and cleaned_leftover:
-        chunk_for_parsing = f"{numeric_part} {cleaned_leftover}"
-    else:
-        # If either is empty, just use the one that isn't
-        chunk_for_parsing = numeric_part or cleaned_leftover
-
-    if not chunk_for_parsing:
-        return ("", "")
-
-    # ---------------------------------------------------------------
-    # Step 4: Pass to your robust parser (extract_numeric_and_unit_analysis)
-    # ---------------------------------------------------------------
-    num_val, multi_sym, base_unit, norm_val, err_flag = extract_numeric_and_unit_analysis(
-        chunk_for_parsing, base_units, multipliers_dict
-    )
+    # Optionally, if extract_numeric_and_unit_analysis expects the token to be a combination,
+    # you can recombine the parts. Otherwise, simply return the split results.
+    # For example, if you need to pass the combined string:
+    combined_token = f"{value_string} {final_unit}".strip()
+    # Then process further if needed.
+    # num_val, multiplier, unit_sym, norm_val, error_flag = extract_numeric_and_unit_analysis(combined_token, base_units, multipliers_dict)
     
-    # Optional debug
-    print("DEBUG:", {
-        "raw_chunk": raw_chunk,
-        "numeric_part": numeric_part,
-        "leftover": leftover,
-    "cleaned_leftover": cleaned_leftover,
-        "chunk_for_parsing": chunk_for_parsing,
-        "base_unit_after_parse": base_unit,
-    "err_flag": err_flag
-     })
+    return value_string, final_unit
 
-    # ---------------------------------------------------------------
-    # Step 5: Convert to final (value_string, base_unit_string)
-    # ---------------------------------------------------------------
-    if err_flag:
-        # If parsing failed, decide how to handle. 
-        # Possibly just return chunk_for_parsing as 'value' to indicate an error.
-        return (chunk_for_parsing, "")
-
-    value_for_output = ""
-    base_unit_for_output = ""
-
-    # If we got a numeric value
-    if num_val is not None:
-        # If it's an integer or a float .is_integer() => return an integer string
-        if (isinstance(num_val, int) or (isinstance(num_val, float) and num_val.is_integer())):
-            value_for_output = str(int(num_val))  # e.g. 357 -> "357"
-        else:
-            value_for_output = str(num_val)       # e.g. 0.8 -> "0.8"
-
-        # If we recognized a multiplier (like 'k'), append it
-        if multi_sym and multi_sym != "1":
-            value_for_output += multi_sym
-        
-        # Use the recognized base unit if found
-        if base_unit:
-            base_unit_for_output = base_unit
-        else:
-            base_unit_for_output = ""
-    
-    # If there's no numeric_val but a recognized base unit
-    elif base_unit:
-        value_for_output = ""
-        base_unit_for_output = base_unit
-    
-    else:
-        # Fallback if nothing recognized but no error
-        # Return chunk_for_parsing as the "value"
-        return (chunk_for_parsing, "")
-
-    return (value_for_output, base_unit_for_output)
 
 
 
