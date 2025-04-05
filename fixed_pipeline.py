@@ -122,7 +122,8 @@ def parse_value_unit_identifier(raw_chunk, base_units, multipliers_dict):
     # Use extract_numeric_and_unit_analysis to parse the entire token.
     combined_token = raw_chunk.strip()
     numeric_val, multiplier_symbol, base_unit, normalized_val, error = extract_numeric_and_unit_analysis(combined_token, base_units, multipliers_dict)
-    
+    print(f"DEBUG: For input '{raw_chunk}', extracted multiplier_symbol='{multiplier_symbol}' and base_unit='{base_unit}'")
+
     # If extraction fails, fall back to previous behavior.
     if error or numeric_val is None:
         match = re.match(r'([+\-]?\d*(?:\.\d+)?(?:[eE][+\-]?\d+)?)(.*)', raw_chunk)
