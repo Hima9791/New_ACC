@@ -147,18 +147,24 @@ def detailed_analysis_pipeline(df, base_units, multipliers_dict):
         parsing_error_flag_list.append(parsing_error)
 
         # Summarize unit variation
-        main_variation = "None"
-        if ua["main_distinct_units"]:
-            if len(ua["main_distinct_units"]) == 1:
-                main_variation = "Uniform: " + safe_str(ua["main_distinct_units"][0])
+        main_units_list = sorted(list(ua["main_distinct_units"]))
+        if main_units_list:
+            if len(main_units_list) == 1:
+                main_variation = "Uniform: " + safe_str(main_units_list[0])
             else:
-                main_variation = "Mixed"
-        condition_variation = "None"
-        if ua["condition_distinct_units"]:
-            if len(ua["condition_distinct_units"]) == 1:
-                condition_variation = "Uniform: " + safe_str(ua["condition_distinct_units"][0])
+                main_variation = "Mixed: " + ", ".join(main_units_list)
+        else:
+            main_variation = "None"
+
+        condition_units_list = sorted(list(ua["condition_distinct_units"]))
+        if condition_units_list:
+            if len(condition_units_list) == 1:
+                condition_variation = "Uniform: " + safe_str(condition_units_list[0])
             else:
-                condition_variation = "Mixed"
+                condition_variation = "Mixed: " + ", ".join(condition_units_list)
+        else:
+            condition_variation = "None"
+
         sub_value_variation_summary_list.append(f"Main: {main_variation}; Condition: {condition_variation}")
 
         # Min/Max normalized
@@ -202,6 +208,7 @@ def detailed_analysis_pipeline(df, base_units, multipliers_dict):
     df["AllDistinctUnitsUsed"] = distinct_units_all_list
 
     return df
+
 
 # --- Wrapper function (Entry point) ---
 # MODIFIED detailed_analysis function
