@@ -109,84 +109,134 @@ def extract_block_texts(main_key, category_name):
     return [p for p in parts if p]
 
 ####identifier update
+
+
 def parse_value_unit_identifier(raw_chunk, base_units, multipliers_dict):
     """
-    Parses a raw text block (expected to be a single value/unit/identifier part)
-    into its constituent value (numeric part as string) and base unit using 
-    `extract_numeric_and_unit_analysis`.
+    Parses a raw text block (expected to contain a numeric part + a base unit)
+    into a numeric value (as string) and a recognized base unit, preserving
+    parentheses when the unit is exactly in base_units.
 
-    If the raw_chunk itself is exactly one of the recognized base units (including
-    any parentheses), we preserve those parentheses (skip removal). Otherwise,
-    we strip parentheses using remove_parentheses_detailed.
+    1) Splits off a leading numeric portion (with optional multiplier).
+    2) Checks if the leftover text is exactly in base_units. If yes, skip parentheses removal.
+    3) Otherwise, remove parentheses from the leftover text.
+    4) Combine numeric + leftover to form chunk_for_parsing.
+    5) Pass chunk_for_parsing to extract_numeric_and_unit_analysis() for robust handling.
+    6) Return (value_string, base_unit_string).
 
     Args:
-        raw_chunk (str): The text block (e.g., '50 mOhm (typ)', 'A (Tc)', '10k', etc.).
-        base_units (set): Known base units (some might contain parentheses, like "A (Tc)").
-        multipliers_dict (dict): Multiplier map for prefixes or suffixes (e.g. {'k':1000, 'M':1e6}).
+        raw_chunk (str): e.g. "357 A (Tc)" or "50 mg (some note)".
+        base_units (set): e.g. {"A (Tc)", "mg", "Ohm", "V"}, etc.
+        multipliers_dict (dict): e.g. {'k': 1000, 'M': 1e6, 'µ': 1e-6}.
 
     Returns:
-        tuple: (value_string, base_unit_string)
-               - value_string (str): The numeric part found (e.g. "50", "0.8").
-                 Empty if only a unit was found or parsing failed.
-               - base_unit_string (str): The resolved base unit (e.g. "mOhm", "A (Tc)").
-                 Empty if no recognized unit was found or parsing failed.
+        tuple of (value_string, base_unit_string):
+            value_string (str): e.g. "357" or "50" or "" if only a unit was found
+            base_unit_string (str): e.g. "A (Tc)" or "mg" or "" if nothing recognized
     """
-    
-    
-    # 1. Trim whitespace from the raw_chunk
+
+    from my_pipeline_helpers import remove_parentheses_detailed
+    # ^ Or wherever your remove_parentheses_detailed function is defined
+
+    # ------------------------------------------------------------------
+    # Step 0: Clean up initial whitespace
+    # ------------------------------------------------------------------
     raw_chunk_stripped = raw_chunk.strip()
-    
-    # 2. Conditionally remove parentheses:
-    #    If raw_chunk_stripped is exactly in base_units (like "A (Tc)"),
-    #    we preserve parentheses. Otherwise, remove them.
-    if raw_chunk_stripped in base_units:
-        chunk_for_parsing = raw_chunk_stripped
+    if not raw_chunk_stripped:
+        return ("", "")
+
+    # ------------------------------------------------------------------
+    # Step 1: Try to split off the numeric portion (optionally with a multiplier)
+    #   Regex Explanation:
+    #   - ^\s*       : start of string, optional leading whitespace
+    #   - ([+-]?\d+(?:\.\d+)?) : numeric part, possibly with sign and decimal
+    #   - (?:[kMµμ]?) : optionally a single multiplier symbol (k, M, µ, etc.)
+    #   - \s+        : at least one space
+    #   - (.*)$      : the remainder is the potential unit or leftover text
+    # ------------------------------------------------------------------
+    match = re.match(
+        r'^\s*([+-]?\d+(?:\.\d+)?(?:[kMµμ]?))\s+(.*)$',
+        raw_chunk_stripped
+    )
+
+    if match:
+        numeric_part = match.group(1).strip()  # e.g. "357"
+        unit_candidate = match.group(2).strip()  # e.g. "A (Tc)"
     else:
-        chunk_for_parsing = remove_parentheses_detailed(raw_chunk_stripped).strip()
-    
-    # 3. If chunk_for_parsing is empty after removal, just return empty strings
+        # If there's no separate numeric portion, the entire chunk is the unit
+        numeric_part = ""
+        unit_candidate = raw_chunk_stripped
+
+    # ------------------------------------------------------------------
+    # Step 2: If unit_candidate is exactly in base_units, skip parentheses removal;
+    #         otherwise, remove parentheses.
+    # ------------------------------------------------------------------
+    if unit_candidate in base_units:
+        preserved_unit = unit_candidate
+    else:
+        preserved_unit = remove_parentheses_detailed(unit_candidate).strip()
+
+    # ------------------------------------------------------------------
+    # Step 3: Combine numeric + leftover to form the chunk we'll pass
+    #         to the robust parser.
+    # ------------------------------------------------------------------
+    if numeric_part and preserved_unit:
+        chunk_for_parsing = f"{numeric_part} {preserved_unit}"
+    else:
+        # If either is empty, just join the one that isn't
+        chunk_for_parsing = numeric_part or preserved_unit
+
+    # If chunk_for_parsing is empty, return empty
     if not chunk_for_parsing:
         return ("", "")
-    
-    # 4. Call the robust parser to extract numeric value, multiplier, base unit, etc.
-    num_val, multi_sym, base_unit, norm_val, err_flag = extract_numeric_and_unit_analysis(
+
+    # ------------------------------------------------------------------
+    # Step 4: Use the robust parser to extract numeric, multiplier, base_unit, etc.
+    # ------------------------------------------------------------------
+    (
+        num_val,      # e.g. 357 (int or float)
+        multi_sym,    # e.g. "k", or None
+        base_unit,    # e.g. "A (Tc)", "mg", "Ohm", or None
+        norm_val,     # normalized float? depends on your usage
+        err_flag      # boolean indicating parse success or failure
+    ) = extract_numeric_and_unit_analysis(
         chunk_for_parsing, base_units, multipliers_dict
     )
+
+    # ------------------------------------------------------------------
+    # Step 5: Build final return values (value_string, base_unit_string)
+    # ------------------------------------------------------------------
+    if err_flag:
+        # If there's a parse error, decide how to represent it
+        # For example, return the stripped chunk as the "value" and no unit
+        return (chunk_for_parsing, "")
     
-    # Prepare the final output
     value_for_output = ""
     base_unit_for_output = ""
 
-    # 5. If we encountered an error in robust parsing, decide how to handle it
-    if err_flag:
-        # For example, you might return the entire chunk_for_parsing as 'value'
-        # or do something else as a fallback. Shown here: keep parentheses-stripped text as 'value'
-        value_for_output = chunk_for_parsing
-        base_unit_for_output = ""
-    # 6. If we got a numeric value...
-    elif num_val is not None:
-        # Convert to a string (handle float vs. int)
+    if num_val is not None:
+        # Convert numeric portion to string
         if (isinstance(num_val, int) or (isinstance(num_val, float) and num_val.is_integer())):
-            value_for_output = str(int(num_val))  # e.g. 10 -> "10"
+            value_for_output = str(int(num_val))  # e.g. 357 -> "357"
         else:
             value_for_output = str(num_val)       # e.g. 0.8 -> "0.8"
 
-        # If there's a recognized multiplier symbol (like 'k', 'M'), add it
+        # Append the multiplier symbol if it's not trivial (like "1")
         if multi_sym and multi_sym != "1":
             value_for_output += multi_sym
         
-        # Use the resolved base unit if it was successfully identified
         base_unit_for_output = base_unit if base_unit else ""
-    # 7. If there's no numeric portion but we did recognize a base unit:
-    elif base_unit:
-        value_for_output = ""  # no numeric part
+
+    elif base_unit:  # No numeric part, but recognized base unit
+        value_for_output = ""  # No numeric
         base_unit_for_output = base_unit
     else:
-        # Possibly no numeric part, no recognized base unit, no error => fallback?
+        # Not numeric, not recognized base unit, no error => fallback
         value_for_output = chunk_for_parsing
         base_unit_for_output = ""
 
     return (value_for_output, base_unit_for_output)
+
 
 
 def get_code_prefixes_for_category(category_name):
