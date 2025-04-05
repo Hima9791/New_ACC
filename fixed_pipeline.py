@@ -143,28 +143,30 @@ def parse_value_unit_identifier(raw_chunk, base_units, multipliers_dict):
         # If extraction failed, return the cleaned chunk as value and no unit? Or signal error?
         # Let's return the cleaned chunk to show what failed.
         value_for_output = chunk_no_paren
-        base_unit_for_output = "" # Indicate no unit resolved due to error
+        base_unit_for_output = ""  # Indicate no unit resolved due to error
     elif num_val is not None:
         # Successfully parsed a number. Need its string representation.
         # Reconstruct numeric part from original chunk is complex. Use num_val.
         # Format float/int appropriately.
-        if isinstance(num_val, int) or num_val.is_integer():
+        if (isinstance(num_val, int) or (isinstance(num_val, float) and num_val.is_integer())):
             value_for_output = str(int(num_val))
         else:
-            value_for_output = str(num_val) # Standard float representation
+            value_for_output = str(num_val)
+
+        # Append multiplier if it's not the default "1"
+        if multi_sym and multi_sym != "1":
+            value_for_output += multi_sym
 
         # Use the resolved base unit if found
         base_unit_for_output = base_unit if base_unit else ""
-
-    elif base_unit: # Case where only unit/prefix+unit was found (num_val is None)
-         value_for_output = "" # No numeric part
-         base_unit_for_output = base_unit # The resolved base unit
-
+    elif base_unit:  # Case where only unit/prefix+unit was found (num_val is None)
+        value_for_output = ""  # No numeric part
+        base_unit_for_output = base_unit  # The resolved base unit
     else:
-         # No number, no resolved unit, no error flag (e.g., empty input after cleaning?)
-         # This case might indicate an issue or unhandled input type.
-         value_for_output = chunk_no_paren # Return cleaned input as fallback
-         base_unit_for_output = ""
+        # No number, no resolved unit, no error flag (e.g., empty input after cleaning?)
+        # This case might indicate an issue or unhandled input type.
+        value_for_output = chunk_no_paren  # Return cleaned input as fallback
+        base_unit_for_output = ""
 
     return (value_for_output, base_unit_for_output)
 
