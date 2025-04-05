@@ -186,15 +186,15 @@ def parse_value_unit_identifier(raw_chunk, base_units, multipliers_dict):
     )
     
     # Optional debug
-    # print("DEBUG:", {
-    #    "raw_chunk": raw_chunk,
-    #    "numeric_part": numeric_part,
-    #    "leftover": leftover,
-    #    "cleaned_leftover": cleaned_leftover,
-    #    "chunk_for_parsing": chunk_for_parsing,
-    #    "base_unit_after_parse": base_unit,
-    #    "err_flag": err_flag
-    # })
+      print("DEBUG:", {
+        "raw_chunk": raw_chunk,
+        "numeric_part": numeric_part,
+        "leftover": leftover,
+    "cleaned_leftover": cleaned_leftover,
+        "chunk_for_parsing": chunk_for_parsing,
+        "base_unit_after_parse": base_unit,
+    "err_flag": err_flag
+     })
 
     # ---------------------------------------------------------------
     # Step 5: Convert to final (value_string, base_unit_string)
