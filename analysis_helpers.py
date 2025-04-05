@@ -79,8 +79,6 @@ def extract_numeric_and_unit_analysis(token, base_units, multipliers_dict):
     Analyzes a token to extract numeric value, multiplier symbol, base unit,
     and normalized value. Handles numbers, units, and combinations.
     """
-    from analysis_helpers import remove_parentheses_detailed
-
     token = str(token).strip()  # Ensure string and strip whitespace
     if not token:
         return None, None, None, None, False
@@ -105,11 +103,22 @@ def extract_numeric_and_unit_analysis(token, base_units, multipliers_dict):
     numeric_str_raw = m.group("numeric")
     rest = m.group("rest").strip()
 
-    # NEW: Preserve the rest if it's exactly a recognized unit.
-    if rest in base_units:
-        cleaned_rest = rest
-    else:
-        cleaned_rest = remove_parentheses_detailed(rest)
+    # NEW: Instead of immediately removing parentheses, first check if the rest starts
+    # with a known multiplier prefix and that the leftover is exactly a recognized unit.
+    prefix_found = False
+    for prefix in sorted(multipliers_dict.keys(), key=len, reverse=True):
+        if rest.startswith(prefix):
+            possible_base = rest[len(prefix):].strip()
+            if possible_base in base_units:
+                # Keep the original rest (with the prefix and parentheses intact)
+                cleaned_rest = rest
+                prefix_found = True
+                break
+    if not prefix_found:
+        if rest in base_units:
+            cleaned_rest = rest
+        else:
+            cleaned_rest = remove_parentheses_detailed(rest)
 
     try:
         numeric_val = float(numeric_str_raw.replace('±',''))
@@ -146,7 +155,6 @@ def extract_numeric_and_unit_analysis(token, base_units, multipliers_dict):
         else:
             return numeric_val, None, None, None, True
 
-    # Calculate the normalized value.
     normalized_value = numeric_val * multiplier_factor
     final_multiplier_symbol = multiplier_symbol if multiplier_symbol is not None else "1"
     return numeric_val, final_multiplier_symbol, base_unit, normalized_value, False
