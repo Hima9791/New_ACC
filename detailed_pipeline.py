@@ -28,214 +28,180 @@ from analysis_helpers import (
 
 # --- detailed_analysis_pipeline function (core logic) ---
 def detailed_analysis_pipeline(df, base_units, multipliers_dict):
-    """
-    Performs detailed analysis on each row of the input DataFrame.
-    Adds columns for classification, normalization, unit analysis, numeric extraction, etc.
+    classifications   = []
+    identifiers_list  = []
+    sub_val_counts    = []
+    condition_counts  = []
+    any_range_main    = []
+    any_multi_main    = []
+    any_range_cond    = []
+    any_multi_cond    = []
+    detailed_value_types = []
 
-    Args:
-        df (pd.DataFrame): Input DataFrame (must contain 'Value' column).
-        base_units (set): Set of known base units.
-        multipliers_dict (dict): Dictionary mapping multiplier symbols to factors.
+    for val in df['Value']:
+        val_str = str(val)
+        (cls, ids, sv_count, final_cond_item_count,
+         rng_main, multi_main, rng_cond, multi_cond,
+         final_main_item_count) = classify_value_type_detailed(val_str)
 
-    Returns:
-        pd.DataFrame: DataFrame with original data and added analysis columns.
-                      Returns an empty DataFrame on critical errors.
-    """
-    st.write("DEBUG: Starting Detailed Analysis Pipeline...")
-    results = [] # List to store row-by-row results as dicts
+        classifications.append(cls)
+        identifiers_list.append(ids)
+        sub_val_counts.append(sv_count)
+        condition_counts.append(final_cond_item_count)
+        any_range_main.append(rng_main)
+        any_multi_main.append(multi_main)
+        any_range_cond.append(rng_cond)
+        any_multi_cond.append(multi_cond)
+        if cls:
+            dvt = f"{cls} [{final_main_item_count}][{final_cond_item_count}] x{sv_count}"
+        else:
+            dvt = ""
+        detailed_value_types.append(dvt)
 
-    # --- Input Validation ---
-    if not isinstance(df, pd.DataFrame):
-        st.error("Detailed Analysis Error: Input must be a pandas DataFrame.")
-        return pd.DataFrame()
-    if 'Value' not in df.columns:
-        st.error("Detailed Analysis Error: Input DataFrame missing 'Value' column.")
-        return pd.DataFrame()
+    df['Classification'] = classifications
+    df['Identifiers'] = identifiers_list
+    df['SubValueCount'] = sub_val_counts
+    df['ConditionCount'] = condition_counts
+    df['HasRangeInMain'] = any_range_main
+    df['HasMultiValueInMain'] = any_multi_main
+    df['HasRangeInCondition'] = any_range_cond
+    df['HasMultipleConditions'] = any_multi_cond
+    df['DetailedValueType'] = detailed_value_types
 
-    # Ensure 'Value' column is string type for consistent processing
-    df_copy = df.copy() # Work on a copy to avoid modifying original DataFrame passed in
-    df_copy['Value'] = df_copy['Value'].astype(str)
+    # Resolve absolute units (if "Normalized Unit" exists)
+    if "Normalized Unit" in df.columns:
+        unit_source = df["Normalized Unit"]
+    else:
+        unit_source = df["Value"]
+    resolved_units = []
+    for x in unit_source:
+        x_str = str(x)
+        resolved_units.append(resolve_compound_unit(x_str, base_units, multipliers_dict))
+    df["Absolute Unit"] = resolved_units
 
+    # Analyze units in main vs condition
+    main_units_list = []
+    main_distinct_count_list = []
+    main_consistent_list = []
+    condition_units_list = []
+    condition_distinct_count_list = []
+    condition_consistent_list = []
+    main_sub_analysis_list = []
+    condition_sub_analysis_list = []
 
-    # --- Process each row ---
-    total_rows = len(df_copy)
-    for index, row in df_copy.iterrows():
-        val_str = row.get('Value', '').strip()
+    for val in df['Value']:
+        val_str = str(val)
+        ua = analyze_value_units(val_str, base_units, multipliers_dict)
+        main_units_list.append(", ".join(safe_str(x) for x in ua["main_units"]))
+        main_distinct_count_list.append(len(ua["main_distinct_units"]))
+        main_consistent_list.append(ua["main_units_consistent"])
+        condition_units_list.append(", ".join(safe_str(x) for x in ua["condition_units"]))
+        condition_distinct_count_list.append(len(ua["condition_distinct_units"]))
+        condition_consistent_list.append(ua["condition_units_consistent"])
+        main_sub_analysis_list.append(str(ua["main_sub_analysis"]))
+        condition_sub_analysis_list.append(str(ua["condition_sub_analysis"]))
 
-        # Initialize result dict for this row, include original index if needed later
-        row_results = {"OriginalIndex": index}
-        # Copy original non-'Value' columns to the result dict first
-        for col in df_copy.columns:
-            if col != 'Value': # Exclude 'Value' itself initially, add it from val_str
-                 row_results[col] = row[col]
-        row_results["Value"] = val_str # Add the cleaned 'Value' string
+    df["MainUnits"] = main_units_list
+    df["MainDistinctUnitCount"] = main_distinct_count_list
+    df["MainUnitsConsistent"] = main_consistent_list
+    df["ConditionUnits"] = condition_units_list
+    df["ConditionDistinctUnitCount"] = condition_distinct_count_list
+    df["ConditionUnitsConsistent"] = condition_consistent_list
+    df["MainSubAnalysis"] = main_sub_analysis_list
+    df["ConditionSubAnalysis"] = condition_sub_analysis_list
 
-        # Handle empty value rows - add default/empty analysis columns
-        if not val_str:
-            row_results.update({
-                'Classification': "Empty", 'Identifiers': "", 'SubValueCount': 0,
-                'ConditionCount': 0, 'HasRangeInMain': False, 'HasMultiValueInMain': False,
-                'HasRangeInCondition': False, 'HasMultipleConditions': False, 'MainItemCount': 0,
-                'DetailedValueType': "Empty", 'Normalized Unit': "", 'Absolute Unit': "",
-                'MainUnits': "", 'MainDistinctUnitCount': 0, 'MainUnitsConsistent': True,
-                'ConditionUnits': "", 'ConditionDistinctUnitCount': 0, 'ConditionUnitsConsistent': True,
-                'OverallUnitConsistency': True, 'ParsingErrorFlag': False,
-                'SubValueUnitVariationSummary': "Main: None; Condition: None",
-                 'MainNumericValues': "", 'ConditionNumericValues': "", 'MainMultipliers': "",
-                 'ConditionMultipliers': "", 'MainBaseUnits': "", 'ConditionBaseUnits': "",
-                 'NormalizedMainValues': "", 'NormalizedConditionValues': "",
-                 'MinNormalizedValue': None, 'MaxNormalizedValue': None,
-                 'SingleUnitForAllSubs': True, 'AllDistinctUnitsUsed': ""
-            })
-            results.append(row_results)
-            continue # Move to next row
+    # Numeric values, multipliers, base units, etc.
+    main_numeric_values_list = []
+    condition_numeric_values_list = []
+    main_multiplier_list = []
+    condition_multiplier_list = []
+    main_base_units_list = []
+    condition_base_units_list = []
+    normalized_main_values_list = []
+    normalized_condition_values_list = []
+    overall_unit_consistency_list = []
+    parsing_error_flag_list = []
+    sub_value_variation_summary_list = []
+    min_value_list = []
+    max_value_list = []
+    single_unit_list = []
+    distinct_units_all_list = []
 
-        # --- Perform Analysis Steps for non-empty values ---
-        try:
-            # 1. Classification and Structure Analysis (using detailed classifier)
-            (cls, ids, sv_count, final_cond_item_count,
-             rng_main, multi_main, rng_cond, multi_cond,
-             final_main_item_count) = classify_value_type_detailed(val_str)
+    for val in df['Value']:
+        val_str = str(val)
+        num_info = extract_numeric_info_for_value(val_str, base_units, multipliers_dict)
+        main_numeric_values_list.append(", ".join(safe_str(x) for x in num_info["main_numeric"]))
+        condition_numeric_values_list.append(", ".join(safe_str(x) for x in num_info["condition_numeric"]))
+        main_multiplier_list.append(", ".join(safe_str(x) for x in num_info["main_multipliers"]))
+        condition_multiplier_list.append(", ".join(safe_str(x) for x in num_info["condition_multipliers"]))
+        main_base_units_list.append(", ".join(safe_str(x) for x in num_info["main_base_units"]))
+        condition_base_units_list.append(", ".join(safe_str(x) for x in num_info["condition_base_units"]))
+        normalized_main_values_list.append(", ".join(safe_str(x) for x in num_info["normalized_main"]))
+        normalized_condition_values_list.append(", ".join(safe_str(x) for x in num_info["normalized_condition"]))
 
-            row_results['Classification'] = cls
-            row_results['Identifiers'] = ids
-            row_results['SubValueCount'] = sv_count
-            row_results['ConditionCount'] = final_cond_item_count
-            row_results['HasRangeInMain'] = rng_main
-            row_results['HasMultiValueInMain'] = multi_main
-            row_results['HasRangeInCondition'] = rng_cond
-            row_results['HasMultipleConditions'] = multi_cond
-            row_results['MainItemCount'] = final_main_item_count # Add main item count
+        ua = analyze_value_units(val_str, base_units, multipliers_dict)
+        overall_consistency = ua["main_units_consistent"] and ua["condition_units_consistent"]
+        overall_unit_consistency_list.append(overall_consistency)
 
-            # Create DetailedValueType string for summary
-            if cls and cls not in ["Empty", "Invalid/Empty Structure", "Classification Error"]:
-                dvt = f"{cls} [M:{final_main_item_count}][C:{final_cond_item_count}]"
-                if sv_count > 1 : dvt += f" (x{sv_count})" # Indicate multiple sub-values
+        parsing_error = any(num_info["main_errors"]) or any(num_info["condition_errors"])
+        parsing_error_flag_list.append(parsing_error)
+
+        # Summarize unit variation
+        main_variation = "None"
+        if ua["main_distinct_units"]:
+            if len(ua["main_distinct_units"]) == 1:
+                main_variation = "Uniform: " + safe_str(ua["main_distinct_units"][0])
             else:
-                dvt = cls if cls else "Unknown" # Show classification result directly
-            row_results['DetailedValueType'] = dvt
+                main_variation = "Mixed"
+        condition_variation = "None"
+        if ua["condition_distinct_units"]:
+            if len(ua["condition_distinct_units"]) == 1:
+                condition_variation = "Uniform: " + safe_str(ua["condition_distinct_units"][0])
+            else:
+                condition_variation = "Mixed"
+        sub_value_variation_summary_list.append(f"Main: {main_variation}; Condition: {condition_variation}")
 
-            # 2. Normalization (Replace numbers with '$')
-            # Apply to the original value string
-            row_results['Normalized Unit'] = replace_numbers_keep_sign_all(val_str)
-            # Optional: Add the version that keeps numbers in parentheses if needed
-            # row_results['Normalized Unit (Parens Intact)'] = replace_numbers_keep_sign_outside_parens(val_str)
+        # Min/Max normalized
+        all_normalized_values = []
+        all_units_used = []
+        for i, val_num in enumerate(num_info["normalized_main"]):
+            if not num_info["main_errors"][i] and (val_num is not None):
+                all_normalized_values.append(val_num)
+                all_units_used.append(num_info["main_base_units"][i])
+        for i, val_num in enumerate(num_info["normalized_condition"]):
+            if not num_info["condition_errors"][i] and (val_num is not None):
+                all_normalized_values.append(val_num)
+                all_units_used.append(num_info["condition_base_units"][i])
+        if all_normalized_values:
+            min_val = min(all_normalized_values)
+            max_val = max(all_normalized_values)
+        else:
+            min_val = None
+            max_val = None
+        distinct_units_all = set(u for u in all_units_used if u and u.lower() != "none")
+        is_single_unit = (len(distinct_units_all) <= 1)
+        min_value_list.append(min_val)
+        max_value_list.append(max_val)
+        single_unit_list.append(is_single_unit)
+        distinct_units_all_list.append(", ".join(distinct_units_all) if distinct_units_all else "")
 
-            # 3. Absolute Unit Resolution (Resolve to base units in structure)
-            row_results["Absolute Unit"] = resolve_compound_unit(replace_numbers_keep_sign_all(val_str), base_units, multipliers_dict)
+    df["MainNumericValues"] = main_numeric_values_list
+    df["ConditionNumericValues"] = condition_numeric_values_list
+    df["MainMultipliers"] = main_multiplier_list
+    df["ConditionMultipliers"] = condition_multiplier_list
+    df["MainBaseUnits"] = main_base_units_list
+    df["ConditionBaseUnits"] = condition_base_units_list
+    df["NormalizedMainValues"] = normalized_main_values_list
+    df["NormalizedConditionValues"] = normalized_condition_values_list
+    df["OverallUnitConsistency"] = overall_unit_consistency_list
+    df["ParsingErrorFlag"] = parsing_error_flag_list
+    df["SubValueUnitVariationSummary"] = sub_value_variation_summary_list
+    df["MinNormalizedValue"] = min_value_list
+    df["MaxNormalizedValue"] = max_value_list
+    df["SingleUnitForAllSubs"] = single_unit_list
+    df["AllDistinctUnitsUsed"] = distinct_units_all_list
 
-
-            # 4. Unit Analysis (Main vs Condition, consistency)
-            unit_analysis_results = analyze_value_units(val_str, base_units, multipliers_dict)
-            row_results["MainUnits"] = ", ".join(safe_str(u) for u in unit_analysis_results["main_units"]) # Show all units found (incl None)
-            row_results["MainDistinctUnitCount"] = len(unit_analysis_results["main_distinct_units"]) # Count of valid distinct units
-            row_results["MainUnitsConsistent"] = unit_analysis_results["main_units_consistent"]
-            row_results["ConditionUnits"] = ", ".join(safe_str(u) for u in unit_analysis_results["condition_units"])
-            row_results["ConditionDistinctUnitCount"] = len(unit_analysis_results["condition_distinct_units"])
-            row_results["ConditionUnitsConsistent"] = unit_analysis_results["condition_units_consistent"]
-            row_results["OverallUnitConsistency"] = unit_analysis_results["overall_consistent"]
-
-            # Unit variation summary string
-            main_units_str = "None"
-            if unit_analysis_results["main_distinct_units"]:
-                main_units_sorted = sorted(list(unit_analysis_results["main_distinct_units"]))
-                main_units_str = "Uniform: " + main_units_sorted[0] if unit_analysis_results["main_units_consistent"] else "Mixed: " + ", ".join(main_units_sorted)
-            cond_units_str = "None"
-            if unit_analysis_results["condition_distinct_units"]:
-                cond_units_sorted = sorted(list(unit_analysis_results["condition_distinct_units"]))
-                cond_units_str = "Uniform: " + cond_units_sorted[0] if unit_analysis_results["condition_units_consistent"] else "Mixed: " + ", ".join(cond_units_sorted)
-            row_results["SubValueUnitVariationSummary"] = f"Main: {main_units_str}; Condition: {cond_units_str}"
-
-            # 5. Numeric Value Extraction & Normalization (to base units)
-            numeric_info = extract_numeric_info_for_value(val_str, base_units, multipliers_dict)
-            row_results["MainNumericValues"] = ", ".join(safe_str(x) for x in numeric_info["main_numeric"])
-            row_results["ConditionNumericValues"] = ", ".join(safe_str(x) for x in numeric_info["condition_numeric"])
-            row_results["MainMultipliers"] = ", ".join(safe_str(x) for x in numeric_info["main_multipliers"])
-            row_results["ConditionMultipliers"] = ", ".join(safe_str(x) for x in numeric_info["condition_multipliers"])
-            row_results["MainBaseUnits"] = ", ".join(safe_str(x) for x in numeric_info["main_base_units"]) # Includes None
-            row_results["ConditionBaseUnits"] = ", ".join(safe_str(x) for x in numeric_info["condition_base_units"]) # Includes None
-            row_results["NormalizedMainValues"] = ", ".join(safe_str(x) for x in numeric_info["normalized_main"])
-            row_results["NormalizedConditionValues"] = ", ".join(safe_str(x) for x in numeric_info["normalized_condition"])
-
-            # Parsing error flag (if any part failed numeric/unit extraction)
-            parsing_error = any(numeric_info["main_errors"]) or any(numeric_info["condition_errors"])
-            row_results["ParsingErrorFlag"] = parsing_error
-
-            # 6. Summaries and Derived Metrics
-            # Collect all valid normalized numeric values and valid base units found
-            all_normalized_numeric = [v for v in numeric_info["normalized_main"] + numeric_info["normalized_condition"] if isinstance(v, (int, float))]
-            all_base_units_found = [u for u in numeric_info["main_base_units"] + numeric_info["condition_base_units"] if u is not None] # Filter None
-
-            # Min/Max normalized value across main and condition
-            min_val = min(all_normalized_numeric) if all_normalized_numeric else None
-            max_val = max(all_normalized_numeric) if all_normalized_numeric else None
-            row_results["MinNormalizedValue"] = min_val
-            row_results["MaxNormalizedValue"] = max_val
-
-            # Overall unit consistency check (alternative way using numeric_info)
-            distinct_units_all_found = set(all_base_units_found)
-            is_single_unit_overall = (len(distinct_units_all_found) <= 1)
-            row_results["SingleUnitForAllSubs"] = is_single_unit_overall # True if 0 or 1 distinct unit found
-            row_results["AllDistinctUnitsUsed"] = ", ".join(sorted(list(distinct_units_all_found))) if distinct_units_all_found else ""
-
-            # Append the completed results for this row
-            results.append(row_results)
-
-        except Exception as e:
-             st.error(f"Error analyzing row {index}, Value: '{val_str}': {e}")
-             st.error(traceback.format_exc()) # Log detailed traceback
-             # Append row with error information
-             error_results = {"OriginalIndex": index, "Value": val_str}
-             # Copy original columns
-             for col in df_copy.columns:
-                 if col != 'Value': error_results[col] = row[col]
-             # Add error markers
-             error_results.update({
-                 'Classification': "Analysis Error",
-                 'DetailedValueType': f"Error: {e}",
-                 'ParsingErrorFlag': True
-                 # Fill other columns with defaults?
-             })
-             results.append(error_results)
-
-        # Progress indicator (optional)
-        if (index + 1) % 100 == 0:
-             st.write(f"DEBUG: Detailed analysis progress: {index + 1}/{total_rows} rows")
-
-
-    st.write(f"DEBUG: Detailed Analysis Pipeline finished. Generated {len(results)} result rows.")
-
-    # --- Create final DataFrame ---
-    if not results:
-        st.warning("Detailed analysis produced no results.")
-        # Return empty frame with original columns + analysis columns if possible?
-        # Define expected analysis columns
-        analysis_cols = [
-             'Classification', 'Identifiers', 'SubValueCount', 'ConditionCount',
-             'HasRangeInMain', 'HasMultiValueInMain', 'HasRangeInCondition', 'HasMultipleConditions', 'MainItemCount',
-             'DetailedValueType', 'Normalized Unit', 'Absolute Unit',
-             'MainUnits', 'MainDistinctUnitCount', 'MainUnitsConsistent', 'ConditionUnits',
-             'ConditionDistinctUnitCount', 'ConditionUnitsConsistent', 'OverallUnitConsistency',
-             'ParsingErrorFlag', 'SubValueUnitVariationSummary', 'MainNumericValues', 'ConditionNumericValues',
-             'MainMultipliers', 'ConditionMultipliers', 'MainBaseUnits', 'ConditionBaseUnits',
-             'NormalizedMainValues', 'NormalizedConditionValues', 'MinNormalizedValue', 'MaxNormalizedValue',
-             'SingleUnitForAllSubs', 'AllDistinctUnitsUsed'
-        ]
-        original_cols = df.columns.tolist()
-        # Ensure 'Value' is present if it was in original
-        if 'Value' not in original_cols: original_cols.append('Value')
-        final_cols = original_cols + [col for col in analysis_cols if col not in original_cols]
-        return pd.DataFrame(columns=final_cols)
-
-
-    analysis_df = pd.DataFrame(results)
-
-    # Drop the temporary 'OriginalIndex' column if it exists
-    if "OriginalIndex" in analysis_df.columns:
-        analysis_df = analysis_df.drop(columns=["OriginalIndex"])
-
-    return analysis_df
-
+    return df
 
 # --- Wrapper function (Entry point) ---
 # MODIFIED detailed_analysis function
