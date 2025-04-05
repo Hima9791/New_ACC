@@ -592,34 +592,22 @@ def resolve_compound_unit(normalized_unit, base_units, multipliers_dict):
 
 
 def count_main_items(main_str: str) -> int:
-    """Counts logical items in the main part of a value string (pre-@)."""
-    main_str = remove_parentheses_detailed(main_str).strip()
+    main_str = main_str.strip()
     if not main_str:
         return 0
-
-    # Split by comma first to identify distinct comma-separated items
-    comma_parts = split_outside_parens(main_str, [','])
-    count = 0
-    for part in comma_parts:
-        part_strip = part.strip()
-        if not part_strip: continue # Skip empty parts
-
-        # Treat each comma-separated part as one item, even if it's internally a range.
-        # Example: "10 to 20V, 30V" -> Counts as 2 items.
-        count += 1
-
-    # If no commas, check if the string is non-empty -> 1 item
-    if count == 0 and main_str:
+    if " to " in main_str:
         return 1
-
-    return count
+    if "," in main_str:
+        return len([s for s in main_str.split(',') if s.strip()])
+    return 1
 
 
 def count_conditions(cond_str: str) -> int:
-    """Counts logical condition clauses in the condition part (post-@)."""
-    cond_str = remove_parentheses_detailed(cond_str).strip()
+    cond_str = cond_str.strip()
     if not cond_str:
         return 0
+    parts = [p.strip() for p in cond_str.split(',') if p.strip()]
+    return len(parts)
 
     # Conditions are typically comma-separated clauses.
     # Each clause might be a single value or a range.
@@ -638,74 +626,28 @@ def count_conditions(cond_str: str) -> int:
 
 
 def classify_condition(cond_str: str) -> str:
-    """Classifies the structure of the condition part (post-@)."""
-    cond_str = remove_parentheses_detailed(cond_str).strip()
+    cond_str = cond_str.strip()
     if not cond_str:
-        return "" # No condition
-
-    # Split by comma first
-    comma_parts = split_outside_parens(cond_str, [','])
-    num_comma_parts = len([p for p in comma_parts if p.strip()]) # Count non-empty parts
-
-    # Check if *any* non-empty part contains a range marker ' to '
-    has_range = any(re.search(r'\s+to\s+', part, re.IGNORECASE) for part in comma_parts if part.strip())
-
-    if num_comma_parts > 1:
-        # If multiple parts, classify as "Multiple". We don't detail if they are mixed range/single here.
-        return "Multiple Conditions" # e.g., "5V, 10A" or "5V, 10V to 15V"
-    elif num_comma_parts == 1:
-        # Single non-empty part
-        if has_range:
-            return "Range Condition" # e.g., "5V to 10V"
-        else:
-            return "Single Condition" # e.g., "5V"
-    else: # Should only happen if cond_str was effectively empty after processing
-        return "" # Treat as no condition
+        return ""
+    if "," in cond_str:
+        return "Multiple Conditions"
+    if " to " in cond_str:
+        return "Range Condition"
+    return "Single Condition"
 
 
 def classify_main(main_str: str) -> str:
-    """Classifies the structure of the main part (pre-@)."""
-    main_str = remove_parentheses_detailed(main_str).strip()
+    main_str = main_str.strip()
     if not main_str:
-        return "" # Empty main part
-
-    # Split by comma first
-    comma_parts = split_outside_parens(main_str, [','])
-    num_comma_parts = len([p for p in comma_parts if p.strip()]) # Count non-empty parts
-
-    # Check if *any* non-empty part contains ' to '
-    has_range = any(re.search(r'\s+to\s+', part, re.IGNORECASE) for part in comma_parts if part.strip())
-
-    # Check if *any* part contains characters typical of units (letters, µ, °, %)
-    # Exclude 'to' itself from this check.
-    unit_char_pattern = r'[a-zA-Zµ°%]'
-    has_unit_chars = any(re.search(unit_char_pattern, re.sub(r'\s+to\s+', '', part, flags=re.IGNORECASE)) for part in comma_parts if part.strip())
-
-
-    if num_comma_parts > 1:
-        # Multiple comma-separated items in the main part
-        return "Multi Value" # e.g., "10A, 20A" or "10, 20 to 30"
-    elif num_comma_parts == 1:
-        # Single non-empty part
-        single_part = comma_parts[0].strip()
-        if has_range:
-            return "Range Value" # e.g., "10A to 20A" or "10 to 20"
-        else:
-            # Single part, not a range. Check content.
-            if has_unit_chars:
-                return "Single Value" # e.g., "10A", "50%", "25°C"
-            # Check if it's purely numeric (allowing sign, decimal, exponent)
-            elif re.fullmatch(r'[+\-±]?\d*(?:\.\d+)?(?:[eE][+\-]?\d+)?', single_part):
-                # Check it's not empty string if regex allows optional parts
-                if single_part:
-                     return "Number" # e.g., "10", "-5.5", ".5"
-                else:
-                     return "Unknown Single Structure" # Empty after processing?
-            else:
-                # Contains other characters, maybe mixed alphanumeric, or unparsed structure?
-                return "Complex Single" # E.g. "Typ 5", "Approx 10V" (if V not base unit)
+        return ""
+    if "," in main_str:
+        return "Multi Value"
+    if " to " in main_str:
+        return "Range Value"
+    if re.search(r'[a-zA-Zµ°%]', main_str):
+        return "Single Value"
     else:
-        return "" # Treat as empty
+        return "Number"
 
 
 def classify_sub_value(subval: str):
@@ -770,102 +712,78 @@ def classify_sub_value(subval: str):
             main_item_count)
 
 def classify_value_type_detailed(raw_value: str):
-    """
-    Performs detailed classification of a raw value string, identifying sub-values,
-    their structure (main/condition, range/single/multi), identifiers, and counts.
-
-    Args:
-        raw_value (str): The complete value string to classify.
-
-    Returns:
-        tuple: (final_class_str, identifiers_str, sub_value_count,
-                max_cond_item_count, any_range_main, any_multi_main,
-                any_range_cond, any_multi_cond, max_main_item_count)
-    """
-    raw_value = str(raw_value).strip()
-    if not raw_value:
-        # Return default values for empty input
-        return ("Empty", "", 0, 0, False, False, False, False, 0)
-
-    # Extract identifiers (content in parentheses) first
-    found_parens_content = extract_identifiers_detailed(raw_value)
-    # Join identifiers with comma-space, ensuring uniqueness and order? Simple join for now.
-    identifiers = ', '.join(found_parens_content)
-
-    # --- Determine Sub-Values ---
-    # The primary separator for distinct sub-values is COMMA, *unless* that comma
-    # is part of a condition definition following an '@'.
-    # Heuristic: Split by comma outside parentheses. Then, if a part *doesn't* contain '@'
-    # but the *previous* part did, consider merging it back as part of the condition.
-    # Example: "A @ X, Y" -> initial split ["A @ X", "Y"]. Since "Y" has no "@" and previous did, merge?
-    # Example: "A @ X, B @ Y" -> initial split ["A @ X", "B @ Y"]. Both have "@", keep separate.
-    # Example: "A, B" -> initial split ["A", "B"]. Keep separate.
-    # Example: "A @ X to Y, Z" -> initial split ["A @ X to Y", "Z"]. Keep separate.
-
-    # Let's stick to the simpler split_outside_parens by comma for now.
-    # This assumes commas are primarily for separating independent values/measurements.
-    subvals_raw = split_outside_parens(raw_value, [','])
-
-    # Filter out empty strings that might result from splitting ", ,"
-    subvals = [sv.strip() for sv in subvals_raw if sv.strip()]
-
-    # Ensure we have at least one subval if the raw_value wasn't empty but split resulted in none
-    if not subvals and raw_value:
-        subvals = [raw_value] # Treat the whole string as one sub-value
-
-    sub_value_count = len(subvals)
-    if sub_value_count == 0: # Should not happen if raw_value was not empty initially
-        return ("Invalid/Empty Structure", identifiers, 0, 0, False, False, False, False, 0)
-
-    # --- Analyze each sub-value ---
-    sub_results = []
-    for sv in subvals:
-        sub_results.append(classify_sub_value(sv))
-
-    # --- Aggregate results ---
-    all_classifications = [res[0] for res in sub_results]
-    # Filter out potential "Empty" or "Invalid" classifications if others exist?
-    valid_classifications = [c for c in all_classifications if c not in ["Empty", "Invalid/Empty Structure"]]
-
-    final_class = ""
-    if sub_value_count == 1:
-        final_class = all_classifications[0] # Use the classification of the single sub-value
+    found_parens = extract_identifiers_detailed(raw_value)
+    identifiers = ', '.join(s.strip('()') for s in found_parens)
+    clean_value = remove_parentheses_detailed(raw_value).strip()
+    at_count = clean_value.count('@')
+    if at_count == 1:
+        subvals = [clean_value]
     else:
-        # Multiple sub-values
-        unique_valid_classes = set(valid_classifications)
-        if len(unique_valid_classes) == 1:
-            # All valid sub-values have the same structure
-            base_class = next(iter(unique_valid_classes))
-            final_class = f"Multiple ({sub_value_count}x) {base_class}"
-        elif len(unique_valid_classes) > 1:
-            # Mixed structures among sub-values
-            final_class = f"Multiple Mixed ({sub_value_count}x)"
-            # Optionally list the types: f"Multiple Mixed ({sub_value_count}x: {', '.join(sorted(unique_valid_classes))})"
+        subvals = [v.strip() for v in clean_value.split(',') if v.strip()]
+    sub_value_count = len(subvals)
+    if sub_value_count == 0:
+        return ("", identifiers, 0, 0, False, False, False, False, 0)
+    sub_classifications = []
+    sub_range_in_main = []
+    sub_multi_in_main = []
+    sub_range_in_condition = []
+    sub_multi_cond = []
+    sub_cond_counts = []
+    sub_main_item_counts = []
+    for sv in subvals:
+        (cls,
+         has_range_m,
+         has_multi_m,
+         has_range_c,
+         has_multi_c,
+         cond_count,
+         main_item_count) = classify_sub_value(sv)
+        sub_classifications.append(cls)
+        sub_range_in_main.append(has_range_m)
+        sub_multi_in_main.append(has_multi_m)
+        sub_range_in_condition.append(has_range_c)
+        sub_multi_cond.append(has_multi_c)
+        sub_cond_counts.append(cond_count)
+        sub_main_item_counts.append(main_item_count)
+    if sub_value_count == 1:
+        final_class = sub_classifications[0]
+    else:
+        unique_classes = set(sub_classifications)
+        if len(unique_classes) == 1:
+            final_class = "Multiple " + next(iter(unique_classes))
         else:
-            # All sub-values were empty or invalid
-            final_class = "Multiple Invalid/Empty"
-
-
-    # Aggregate boolean flags (True if *any* sub-value had the feature)
-    has_range_in_main_overall = any(res[1] for res in sub_results)
-    has_multi_value_in_main_overall = any(res[2] for res in sub_results)
-    has_range_in_condition_overall = any(res[3] for res in sub_results)
-    has_multiple_conditions_overall = any(res[4] for res in sub_results)
-
-    # Aggregate counts (use max)
-    final_cond_item_count_agg = max([res[5] for res in sub_results]) if sub_results else 0
-    final_main_item_count_agg = max([res[6] for res in sub_results]) if sub_results else 0
-
-
-    return (final_class, # The overall classification string
-            identifiers, # Comma-separated string of content in ()
-            sub_value_count, # How many comma-separated sub-values were detected
-            final_cond_item_count_agg, # Max condition clauses found in any sub-value
-            has_range_in_main_overall, # Any sub-value had range in its main part?
-            has_multi_value_in_main_overall, # Any sub-value had multi-value in its main part?
-            has_range_in_condition_overall, # Any sub-value had range in its condition?
-            has_multiple_conditions_overall, # Any sub-value had multiple condition clauses?
-            final_main_item_count_agg) # Max main items found in any sub-value
+            final_class = "Multiple Mixed Classification"
+    unique_cond_counts = set(sub_cond_counts)
+    if len(unique_cond_counts) == 1:
+        final_cond_item_count = unique_cond_counts.pop()
+    else:
+        final_cond_item_count = "Mixed"
+    unique_main_item_counts = set(sub_main_item_counts)
+    if len(unique_main_item_counts) == 1:
+        final_main_item_count = unique_main_item_counts.pop()
+    else:
+        final_main_item_count = "Mixed"
+    has_range_in_main = any(sub_range_in_main)
+    has_multi_value_in_main = any(sub_multi_in_main)
+    has_range_in_condition = any(sub_range_in_condition)
+    has_multiple_conditions = any(sub_multi_cond)
+    # Additional logic for "Multiple Mixed Classification"
+    if final_class == "Multiple Mixed Classification":
+        freq_map = {}
+        for cls in sub_classifications:
+            freq_map[cls] = freq_map.get(cls, 0) + 1
+        if len(freq_map) == 2:
+            # Example scenario to refine if needed
+            pass
+    return (final_class,
+            identifiers,
+            sub_value_count,
+            final_cond_item_count,
+            has_range_in_main,
+            has_multi_value_in_main,
+            has_range_in_condition,
+            has_multiple_conditions,
+            final_main_item_count)
 
 
 def fix_exceptions(s):
