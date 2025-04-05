@@ -114,11 +114,12 @@ def extract_block_texts(main_key, category_name):
 
 
 
-from analysis_helpers import extract_numeric_and_unit_analysis, remove_parentheses_detailed
+
+from analysis_helpers import remove_parentheses_detailed, extract_numeric_and_unit_analysis
 
 def parse_value_unit_identifier(raw_chunk, base_units, multipliers_dict):
-    # Split numeric part and the rest
-    match = re.match(r'([+-]?[\d\.]+(?:e[+-]?\d+)?)(.*)', raw_chunk)
+    # Split off the numeric part and the rest of the string
+    match = re.match(r'([+\-]?\d*(?:\.\d+)?(?:[eE][+\-]?\d+)?)(.*)', raw_chunk)
     if match:
         value_string = match.group(1).strip()
         unit_candidate = match.group(2).strip()
@@ -126,21 +127,18 @@ def parse_value_unit_identifier(raw_chunk, base_units, multipliers_dict):
         value_string = ""
         unit_candidate = raw_chunk.strip()
 
-    # If the unit_candidate exactly matches one of the recognized units, preserve it.
+    # Preserve the unit candidate if it exactly matches a recognized unit.
     if unit_candidate in base_units:
         final_unit = unit_candidate
     else:
-        # Otherwise, remove parentheses as usual.
         final_unit = remove_parentheses_detailed(unit_candidate)
-
-    # Optionally, if extract_numeric_and_unit_analysis expects the token to be a combination,
-    # you can recombine the parts. Otherwise, simply return the split results.
-    # For example, if you need to pass the combined string:
-    combined_token = f"{value_string} {final_unit}".strip()
-    # Then process further if needed.
-    # num_val, multiplier, unit_sym, norm_val, error_flag = extract_numeric_and_unit_analysis(combined_token, base_units, multipliers_dict)
     
+    # Optionally, combine if your downstream code expects a single token.
+    combined_token = f"{value_string} {final_unit}".strip()
+    # You may pass combined_token to further parsing if needed:
+    # return extract_numeric_and_unit_analysis(combined_token, base_units, multipliers_dict)
     return value_string, final_unit
+
 
 
 
