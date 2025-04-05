@@ -78,123 +78,76 @@ def extract_numeric_and_unit_analysis(token, base_units, multipliers_dict):
     """
     Analyzes a token to extract numeric value, multiplier symbol, base unit,
     and normalized value. Handles numbers, units, and combinations.
-
-    Args:
-        token (str): The string token to analyze (e.g., "10kOhm", "5V", "100").
-        base_units (set): A set of known base unit symbols (e.g., {'V', 'Ohm', 'A'}).
-        multipliers_dict (dict): A dictionary mapping multiplier symbols to factors (e.g., {'k': 1000}).
-
-    Returns:
-        tuple: (numeric_val, multiplier_symbol, base_unit, normalized_value, error_flag)
-               - numeric_val (float/None): The extracted numeric value.
-               - multiplier_symbol (str/None): The identified multiplier symbol (e.g., 'k', 'm') or "1" if none.
-               - base_unit (str/None): The identified base unit symbol (e.g., 'V', 'Ohm').
-               - normalized_value (float/None): Numeric value * multiplier factor.
-               - error_flag (bool): True if a parsing error occurred.
     """
-    token = str(token).strip() # Ensure string and strip whitespace
+    from analysis_helpers import remove_parentheses_detailed
+
+    token = str(token).strip()  # Ensure string and strip whitespace
     if not token:
-        return None, None, None, None, False # Not an error, just empty
+        return None, None, None, None, False
 
     # Regex to capture optional sign, numeric part, and the rest (unit, etc.)
-    # Allows scientific notation like 1.23e-4, handles +/-/± signs
-    # Handles cases like ".5" -> 0.5
     pattern = re.compile(r'^(?P<numeric>[+\-±]?\d*(?:\.\d+)?(?:[eE][+\-]?\d+)?)(?P<rest>.*)$')
     m = pattern.match(token)
 
-    # Handle cases where the token might be *only* a unit or multiplier+unit
-    if not m or not m.group("numeric"): # No numeric part found at the start
-        # Check if it's just a known unit or starts with a known prefix followed by a known unit
-        is_unit_only = False
+    # Handle case where token might be only a unit
+    if not m or not m.group("numeric"):
         if token in base_units:
-             is_unit_only = True
-             # Return None for numeric parts, "1" for multiplier, token as base unit
-             return None, "1", token, None, False
+            return None, "1", token, None, False
         else:
-             # Check if it starts with a prefix and the rest is a base unit
-             sorted_prefixes = sorted(multipliers_dict.keys(), key=len, reverse=True)
-             for prefix in sorted_prefixes:
-                  if token.startswith(prefix):
-                       possible_base = token[len(prefix):].strip()
-                       if possible_base in base_units:
-                            # Found prefix + base unit only
-                            return None, prefix, possible_base, None, False
+            sorted_prefixes = sorted(multipliers_dict.keys(), key=len, reverse=True)
+            for prefix in sorted_prefixes:
+                if token.startswith(prefix):
+                    possible_base = token[len(prefix):].strip()
+                    if possible_base in base_units:
+                        return None, prefix, possible_base, None, False
+        return None, None, None, None, True
 
-        # If it wasn't purely a unit, and didn't start with a number, it's likely an error or just text
-        # Let's flag as error ONLY if it's not recognized as a unit pattern above
-        if not is_unit_only:
-            # Consider if just text (e.g., "None", "Typical") should be an error or return specific values
-            # For now, treat non-numeric, non-unit as error for this function's purpose
-            # st.write(f"DEBUG: Token '{token}' is non-numeric and not recognized as unit.")
-            return None, None, None, None, True # True error
-        else:
-             # This path shouldn't be reached if is_unit_only handled correctly above
-             return None, None, None, None, False
-
-
-    # If we got here, a numeric part was found by the regex
     numeric_str_raw = m.group("numeric")
     rest = m.group("rest").strip()
 
-    # Refine numeric conversion robustness
-    numeric_val = None
-    numeric_str_clean = numeric_str_raw.replace('±','') # Remove ± for float conversion
-    try:
-        if numeric_str_clean: # Ensure not empty string after removing sign etc.
-            numeric_val = float(numeric_str_clean)
-    except ValueError:
-        # This indicates an issue with the regex or input format if numeric_str exists but isn't float-able
-        return None, None, None, None, True # Error in numeric conversion
+    # NEW: Preserve the rest if it's exactly a recognized unit.
+    if rest in base_units:
+        cleaned_rest = rest
+    else:
+        cleaned_rest = remove_parentheses_detailed(rest)
 
-    # Case 1: Only a number was found (rest is empty)
-    if not rest:
-        # Correct: Return numeric value, "1" as multiplier, None as base unit
+    try:
+        numeric_val = float(numeric_str_raw.replace('±',''))
+    except ValueError:
+        return None, None, None, None, True
+
+    # Case: Only a number was found.
+    if not cleaned_rest:
         return numeric_val, "1", None, numeric_val, False
 
-    # Case 2: Number followed by something - try to parse unit and multiplier from 'rest'
-    multiplier_symbol = None # Default to None initially
-    base_unit = None       # Default to None initially
-    multiplier_factor = 1.0  # Default factor
+    # Try to match a known prefix + base unit
+    multiplier_symbol = None
+    base_unit = None
+    multiplier_factor = 1.0
     found_unit_structure = False
 
-    # Try matching known prefixes followed by known base units
     sorted_prefixes = sorted(multipliers_dict.keys(), key=len, reverse=True)
     for prefix in sorted_prefixes:
-        if rest.startswith(prefix):
-            possible_base = rest[len(prefix):].strip()
+        if cleaned_rest.startswith(prefix):
+            possible_base = cleaned_rest[len(prefix):].strip()
             if possible_base in base_units:
                 multiplier_symbol = prefix
                 base_unit = possible_base
                 multiplier_factor = multipliers_dict[prefix]
                 found_unit_structure = True
-                break # Found the longest matching prefix + base unit
+                break
 
-    # If no prefix structure was found, check if the entire 'rest' is a base unit
     if not found_unit_structure:
-        if rest in base_units:
-            # No prefix symbol, multiplier remains 1.0
-            multiplier_symbol = "1" # Explicitly '1' for no prefix
-            base_unit = rest
+        # If no prefix was detected, check if cleaned_rest itself is a base unit.
+        if cleaned_rest in base_units:
+            multiplier_symbol = "1"
+            base_unit = cleaned_rest
             found_unit_structure = True
         else:
-            # The 'rest' part is not a known base unit and didn't start with a known prefix+base_unit
-            # It might be an invalid unit, combined unit (Ohm/V - not handled here), or just text.
-            # Flag as error since we couldn't resolve the unit part.
-            # st.write(f"DEBUG: Unknown unit part '{rest}' in token '{token}'")
-            return numeric_val, None, None, None, True # Error: Unrecognized unit part
+            return numeric_val, None, None, None, True
 
-    # Calculate normalized value if possible
-    normalized_value = None
-    if numeric_val is not None and multiplier_factor is not None:
-         try:
-            normalized_value = numeric_val * multiplier_factor
-         except TypeError:
-             # This should ideally not happen if numeric_val is float and factor is float
-             st.warning(f"DEBUG: Type error during normalization for {numeric_val} * {multiplier_factor}")
-             normalized_value = None # Or handle differently
-
-    # Return results: original numeric, multiplier symbol found ("1" if none), base unit found, normalized value, error flag
-    # Ensure multiplier_symbol is "1" if None was assigned but unit processing succeeded.
+    # Calculate the normalized value.
+    normalized_value = numeric_val * multiplier_factor
     final_multiplier_symbol = multiplier_symbol if multiplier_symbol is not None else "1"
     return numeric_val, final_multiplier_symbol, base_unit, normalized_value, False
 
