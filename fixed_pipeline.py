@@ -135,7 +135,7 @@ def parse_value_unit_identifier(raw_chunk, base_units, multipliers_dict):
             base_unit_string (str): e.g. "A (Tc)" or "mg" or "" if nothing recognized
     """
 
-    from my_pipeline_helpers import remove_parentheses_detailed
+    from analysis_helpers import remove_parentheses_detailed
     # ^ Or wherever your remove_parentheses_detailed function is defined
 
     # ------------------------------------------------------------------
