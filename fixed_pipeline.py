@@ -115,60 +115,128 @@ def extract_block_texts(main_key, category_name):
 
 def parse_value_unit_identifier(raw_chunk, base_units, multipliers_dict):
     """
-    Parses a raw text like "357k A (Tc)" into:
-      - value_string (containing numeric + multiplier symbol, e.g., "357k")
-      - base_unit_string (e.g., "A (Tc)"), preserving parentheses if leftover is exactly in base_units.
+    Parses a raw text block (expected to be "number + unit" or just "unit") into:
+      - a numeric part (as a string)
+      - a recognized base unit (could be "A" or "A (Tc)" if both are in base_units)
+    preserving parentheses if the leftover text after numeric extraction matches
+    a known base unit exactly.
+
+    Returns: (value_str, base_unit_str)
 
     Example:
-      raw_chunk = "357k A (Tc)"
-      base_units = {"A (Tc)"}
-      => returns ("357k", "A (Tc)")
+      raw_chunk = "357 A (Tc)"
+      base_units = {"A", "A (Tc)"}
+      => returns ("357", "A (Tc)")
 
-      raw_chunk = "50k A (Xc)"
-      => leftover is "A (Xc)" which is NOT recognized => parentheses removed => "A"
-         so the result is ("50k", "A")
+      raw_chunk = "50 A (Tc) typical"
+      => leftover is "A (Tc) typical" (not exactly "A (Tc)"), so parentheses are removed
+         or the robust parser tries to parse it. 
     """
 
+    # Step 0: Trim whitespace
     raw_chunk_stripped = raw_chunk.strip()
     if not raw_chunk_stripped:
         return ("", "")
 
     # ---------------------------------------------------------------
-    # Step 1: Regex to capture numeric + optional multiplier + leftover
+    # Step 1: Extract any leading numeric portion (including optional
+    # multiplier symbol, e.g. "k", "M", or "µ/μ") with a regex.
+    #   - Example: "357 A (Tc)" => numeric_part="357", leftover="A (Tc)"
+    #   - If no numeric portion is found, leftover=raw_chunk_stripped
     # ---------------------------------------------------------------
-    match = re.match(r'^([+-]?\d+(?:\.\d+)?)([kMµμ]?)\s+(.*)$', raw_chunk_stripped)
+    match = re.match(r'^([+-]?\d+(?:\.\d+)?(?:[kMµμ]?))\s+(.*)$', raw_chunk_stripped)
     if match:
-        numeric_str = match.group(1).strip()      # e.g., "357"
-        multiplier_sym = match.group(2).strip()   # e.g., "k" or ""
-        leftover = match.group(3).strip()         # e.g., "A (Tc)"
+        numeric_part = match.group(1).strip()  # e.g. "357"
+        leftover = match.group(2).strip()      # e.g. "A (Tc)"
     else:
-        # If there's no match, maybe there's no numeric portion at all
-        numeric_str = ""
-        multiplier_sym = ""
+        # No numeric portion found => the entire chunk is leftover
+        numeric_part = ""
         leftover = raw_chunk_stripped
 
     # ---------------------------------------------------------------
-    # Step 2: Conditionally keep parentheses for recognized unit
+    # Step 2: Conditionally remove parentheses from leftover
+    #   - If leftover is exactly in base_units, skip removing parentheses
+    #   - Else, remove them
     # ---------------------------------------------------------------
     if leftover in base_units:
         cleaned_leftover = leftover
     else:
-        cleaned_leftover = remove_parentheses_detailed(leftover)
+        # If leftover has extra text or isn't exactly recognized,
+        # remove extraneous parentheses. E.g. "A (Tc) typical" => "A  typical"
+        cleaned_leftover = remove_parentheses_detailed(leftover).strip()
 
     # ---------------------------------------------------------------
-    # Step 3: Build the final value string by KEEPING the multiplier symbol
+    # Step 3: Combine numeric + leftover for robust parsing
+    #   "357" + "A (Tc)" => "357 A (Tc)"
     # ---------------------------------------------------------------
-    # Instead of converting numeric_str to a float and multiplying,
-    # we simply concatenate them, e.g., "357" + "k" => "357k"
-    if numeric_str or multiplier_sym:
-        value_for_output = f"{numeric_str}{multiplier_sym}"
+    if numeric_part and cleaned_leftover:
+        chunk_for_parsing = f"{numeric_part} {cleaned_leftover}"
     else:
-        value_for_output = ""
+        # If either is empty, just use the one that isn't
+        chunk_for_parsing = numeric_part or cleaned_leftover
+
+    if not chunk_for_parsing:
+        return ("", "")
 
     # ---------------------------------------------------------------
-    # Step 4: Return final (value_string, base_unit_string)
+    # Step 4: Pass to your robust parser (extract_numeric_and_unit_analysis)
     # ---------------------------------------------------------------
-    return (value_for_output.strip(), cleaned_leftover.strip())
+    num_val, multi_sym, base_unit, norm_val, err_flag = extract_numeric_and_unit_analysis(
+        chunk_for_parsing, base_units, multipliers_dict
+    )
+    
+    # Optional debug
+    print("DEBUG:", {
+        "raw_chunk": raw_chunk,
+        "numeric_part": numeric_part,
+        "leftover": leftover,
+    "cleaned_leftover": cleaned_leftover,
+        "chunk_for_parsing": chunk_for_parsing,
+        "base_unit_after_parse": base_unit,
+    "err_flag": err_flag
+     })
+
+    # ---------------------------------------------------------------
+    # Step 5: Convert to final (value_string, base_unit_string)
+    # ---------------------------------------------------------------
+    if err_flag:
+        # If parsing failed, decide how to handle. 
+        # Possibly just return chunk_for_parsing as 'value' to indicate an error.
+        return (chunk_for_parsing, "")
+
+    value_for_output = ""
+    base_unit_for_output = ""
+
+    # If we got a numeric value
+    if num_val is not None:
+        # If it's an integer or a float .is_integer() => return an integer string
+        if (isinstance(num_val, int) or (isinstance(num_val, float) and num_val.is_integer())):
+            value_for_output = str(int(num_val))  # e.g. 357 -> "357"
+        else:
+            value_for_output = str(num_val)       # e.g. 0.8 -> "0.8"
+
+        # If we recognized a multiplier (like 'k'), append it
+        if multi_sym and multi_sym != "1":
+            value_for_output += multi_sym
+        
+        # Use the recognized base unit if found
+        if base_unit:
+            base_unit_for_output = base_unit
+        else:
+            base_unit_for_output = ""
+    
+    # If there's no numeric_val but a recognized base unit
+    elif base_unit:
+        value_for_output = ""
+        base_unit_for_output = base_unit
+    
+    else:
+        # Fallback if nothing recognized but no error
+        # Return chunk_for_parsing as the "value"
+        return (chunk_for_parsing, "")
+
+    return (value_for_output, base_unit_for_output)
+
 
 
 
