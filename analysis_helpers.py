@@ -536,13 +536,13 @@ def analyze_value_units(raw_value, base_units, multipliers_dict):
         "main_units_consistent": main_consistent,
         "main_unit_count": main_analysis["count"], # Count of tokens in main part
         # Keep sub_analysis if needed for detailed debugging, maybe as string
-        # "main_sub_analysis": str(main_analysis),
+        "main_sub_analysis": str(main_analysis),
 
         "condition_units": all_condition_units,
         "condition_distinct_units": condition_distinct,
         "condition_units_consistent": condition_consistent,
         "condition_unit_count": cond_analysis["count"], # Count of tokens in condition part
-        # "condition_sub_analysis": str(cond_analysis),
+        "condition_sub_analysis": str(cond_analysis),
 
         "all_distinct_units": all_distinct_units, # Set of all unique valid units found
         "overall_consistent": overall_consistent # True if <= 1 unique valid unit across main and condition
