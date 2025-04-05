@@ -28,6 +28,19 @@ from analysis_helpers import (
 
 # --- detailed_analysis_pipeline function (core logic) ---
 def detailed_analysis_pipeline(df, base_units, multipliers_dict):
+    # ----- Add Normalized Unit column -----
+normalized_units = []
+for val in df['Value']:
+    # Ensure the value is converted to string and normalized
+    normalized_units.append(replace_numbers_keep_sign_all(str(val)))
+df['Normalized Unit'] = normalized_units
+
+# ----- Compute Absolute Unit based on Normalized Unit -----
+absolute_units = []
+for norm_val in df['Normalized Unit']:
+    absolute_units.append(resolve_compound_unit(norm_val, base_units, multipliers_dict))
+df['Absolute Unit'] = absolute_units
+
     classifications   = []
     identifiers_list  = []
     sub_val_counts    = []
