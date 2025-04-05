@@ -116,28 +116,45 @@ def extract_block_texts(main_key, category_name):
 
 
 from analysis_helpers import remove_parentheses_detailed, extract_numeric_and_unit_analysis
+import re
 
 def parse_value_unit_identifier(raw_chunk, base_units, multipliers_dict):
-    # Split off the numeric part and the rest of the string
-    match = re.match(r'([+\-]?\d*(?:\.\d+)?(?:[eE][+\-]?\d+)?)(.*)', raw_chunk)
-    if match:
-        value_string = match.group(1).strip()
-        unit_candidate = match.group(2).strip()
-    else:
-        value_string = ""
-        unit_candidate = raw_chunk.strip()
-
-    # Preserve the unit candidate if it exactly matches a recognized unit.
-    if unit_candidate in base_units:
-        final_unit = unit_candidate
-    else:
-        final_unit = remove_parentheses_detailed(unit_candidate)
+    # Use extract_numeric_and_unit_analysis to parse the entire token.
+    combined_token = raw_chunk.strip()
+    numeric_val, multiplier_symbol, base_unit, normalized_val, error = extract_numeric_and_unit_analysis(combined_token, base_units, multipliers_dict)
     
-    # Optionally, combine if your downstream code expects a single token.
-    combined_token = f"{value_string} {final_unit}".strip()
-    # You may pass combined_token to further parsing if needed:
-    # return extract_numeric_and_unit_analysis(combined_token, base_units, multipliers_dict)
-    return value_string, final_unit
+    # If extraction fails, fall back to previous behavior.
+    if error or numeric_val is None:
+        match = re.match(r'([+\-]?\d*(?:\.\d+)?(?:[eE][+\-]?\d+)?)(.*)', raw_chunk)
+        if match:
+            value_string = match.group(1).strip()
+            unit_candidate = match.group(2).strip()
+        else:
+            value_string = ""
+            unit_candidate = raw_chunk.strip()
+        if unit_candidate in base_units:
+            final_unit = unit_candidate
+        else:
+            final_unit = remove_parentheses_detailed(unit_candidate)
+        return value_string, final_unit
+
+    # Format numeric_val as a string.
+    try:
+        numeric_float = float(numeric_val)
+    except Exception:
+        numeric_float = numeric_val
+
+    if isinstance(numeric_float, float) and numeric_float.is_integer():
+        numeric_str = str(int(numeric_float))
+    else:
+        numeric_str = str(numeric_float)
+
+    # Append the prefix to the numeric part if it's not "1"
+    if multiplier_symbol != "1":
+        numeric_str = numeric_str + multiplier_symbol
+
+    # Return the numeric string (with prefix appended) and the base unit.
+    return numeric_str, base_unit
 
 
 
