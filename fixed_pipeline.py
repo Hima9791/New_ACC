@@ -42,71 +42,59 @@ def extract_block_texts(main_key, category_name):
 
     # Handle structures with conditions first
     if " with " in category_name:
-        # Split category name, e.g., "Range Value", "Single Condition"
-        # main_type, cond_type = category_name.split(" with ", 1) # Not needed directly
-
-        # Split the input string by '@' outside parentheses
+        # Split input string by '@' (outside parentheses)
         at_split = split_outside_parens(main_key, ['@'])
-        main_part = ""
-        cond_part = ""
-        if len(at_split) >= 1:
-             main_part = at_split[0].strip()
-        if len(at_split) >= 2:
-             cond_part = "@".join(at_split[1:]).strip() # Rejoin if multiple '@'
+        main_part = at_split[0].strip() if at_split else ""
+        cond_part = "@".join(at_split[1:]).strip() if len(at_split) >= 2 else ""
 
         # Extract blocks from the main part based on its structure type
         if category_name.startswith("Range Value"):
-            # Split main part by ' to ' (case-insensitive)
-            range_split = split_outside_parens(main_part, [' to ']) # Crude split, assumes ' to ' is delimiter
-            # Refine: Use regex split for ' to ' with spaces?
-            range_split = re.split(r'\s+to\s+', main_part, flags=re.IGNORECASE)
+            # Use our own splitter so that ' to ' inside parentheses is not split.
+            range_split = split_outside_parens(main_part, [' to '])
             parts.extend(p.strip() for p in range_split if p.strip())
         elif category_name.startswith("Multi Value"):
-            # This category indicates multiple comma-separated values *at the top level*.
-            # process_single_key should handle splitting these. If this function receives
-            # such a category, it implies an issue. Assume it's called on a *chunk* which
-            # shouldn't be "Multi Value". Fallback: split by comma? Or treat as single?
-            # Let's assume it receives a classification like "Single Value" if called on a chunk.
-             st.warning(f"DEBUG: extract_block_texts received main category 'Multi Value' for '{main_key}'. Treating as single block.")
-             parts.append(main_part) # Fallback
-        else: # Single Value, Number, Complex Single
+            # Fallback: treat as single block
+            st.warning(f"DEBUG: extract_block_texts received main category 'Multi Value' for '{main_key}'. Treating as single block.")
+            parts.append(main_part)
+        else:
+            # Single Value, Number, or Complex Single
             parts.append(main_part)
 
         # Extract blocks from the condition part based on its structure type
         if "Range Condition" in category_name:
-             range_split = re.split(r'\s+to\s+', cond_part, flags=re.IGNORECASE)
-             parts.extend(p.strip() for p in range_split if p.strip())
+            # Use splitter that respects parentheses
+            range_split = split_outside_parens(cond_part, [' to '])
+            parts.extend(p.strip() for p in range_split if p.strip())
         elif "Multiple Conditions" in category_name:
-             # Split condition part by comma outside parentheses
-             cond_blocks = split_outside_parens(cond_part, [','])
-             parts.extend(p.strip() for p in cond_blocks if p.strip())
-        elif "Single Condition" in category_name: # Check if cond_part is not empty
+            cond_blocks = split_outside_parens(cond_part, [','])
+            parts.extend(p.strip() for p in cond_blocks if p.strip())
+        elif "Single Condition" in category_name:
             if cond_part:
-                 parts.append(cond_part)
-        # Else: No condition type specified or condition part was empty
+                parts.append(cond_part)
 
     # Handle structures without conditions
     elif category_name.startswith("Range Value"):
-        range_split = re.split(r'\s+to\s+', main_key, flags=re.IGNORECASE)
+        # Use our custom splitter to avoid splitting inside parentheses.
+        range_split = split_outside_parens(main_key, [' to '])
         parts.extend(p.strip() for p in range_split if p.strip())
     elif category_name.startswith("Multi Value"):
-        # As above, this category should ideally be handled by the caller splitting chunks.
         st.warning(f"DEBUG: extract_block_texts received category 'Multi Value' for '{main_key}'. Treating as single block.")
-        parts.append(main_key) # Fallback
-    elif category_name.startswith("Single Value") or category_name.startswith("Number") or category_name.startswith("Complex Single"):
         parts.append(main_key)
-    elif category_name.startswith("Multiple"): # Handle "Multiple (2x)..." types
-        # Again, caller should split. This is a fallback.
+    elif (category_name.startswith("Single Value") or 
+          category_name.startswith("Number") or 
+          category_name.startswith("Complex Single")):
+        parts.append(main_key)
+    elif category_name.startswith("Multiple"):
         st.warning(f"DEBUG: extract_block_texts received category '{category_name}'. Treating as single block.")
         parts.append(main_key)
     elif category_name == "Empty" or category_name.startswith("Invalid"):
-        pass # Return empty list
-    else: # Unknown category
+        pass  # Return empty list
+    else:
         st.warning(f"DEBUG: Unknown category '{category_name}' in extract_block_texts. Treating '{main_key}' as single block.")
         parts.append(main_key)
 
-    # Final filter for any empty strings resulting from splits
     return [p for p in parts if p]
+
 
 ####identifier update
 
